@@ -27,6 +27,18 @@ git:
     name: my-app-git-credentials
     usernameKey: username
     passwordKey: password
+  developerConfiguration:
+    enabled: true
+    repository:
+      url: https://gitlab.example.com/team/my-app.git
+    credentialsSecret:
+      name: my-app-developer-git-credentials
+      usernameKey: username
+      passwordKey: password
+    # Future promotion logic will resolve this tag from the current Freight.
+    tagTemplate: "{{ .ImageTag }}"
+    paths:
+      valuesFile: values.yaml
   branches:
     source: develop
     production: master
