@@ -43,6 +43,8 @@ This initial chart foundation creates:
 - A Kargo `Warehouse` subscribed to one or more component image repositories.
 - Default values and JSON Schema validation for important application, Git, image, and environment settings.
 
+The Kargo Project name is derived from the Helm release namespace. Deploy the chart into the namespace that should own the Kargo project.
+
 ## Future Resources
 
 Later chart iterations are expected to add:
@@ -67,13 +69,15 @@ helm lint ./generic-kargo-pipeline
 Render the chart:
 
 ```sh
-helm template my-app-promotion ./generic-kargo-pipeline
+helm template my-app-promotion ./generic-kargo-pipeline \
+  --namespace my-app-promotion
 ```
 
 Render with an application-specific values file:
 
 ```sh
 helm template my-app-promotion ./generic-kargo-pipeline \
+  --namespace my-app-promotion \
   --values ./my-app-values.yaml
 ```
 
@@ -81,6 +85,8 @@ Install or upgrade with an application-specific values file:
 
 ```sh
 helm upgrade --install my-app-promotion ./generic-kargo-pipeline \
+  --namespace my-app-promotion \
+  --create-namespace \
   --values ./my-app-values.yaml
 ```
 

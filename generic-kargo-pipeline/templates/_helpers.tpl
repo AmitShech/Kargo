@@ -22,10 +22,10 @@ Create a release-scoped chart name.
 {{- end -}}
 
 {{/*
-Return the Kargo Project name. Kargo Project names are also Kubernetes namespaces.
+Return the Kargo Project name. The project is bound to the Helm release namespace.
 */}}
 {{- define "generic-kargo-pipeline.projectName" -}}
-{{- include "generic-kargo-pipeline.normalizeName" .Values.kargo.project.name -}}
+{{- include "generic-kargo-pipeline.normalizeName" .Release.Namespace -}}
 {{- end -}}
 
 {{/*
