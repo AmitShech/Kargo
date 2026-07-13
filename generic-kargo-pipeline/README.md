@@ -40,7 +40,7 @@ This initial chart foundation creates:
 
 - A Kargo `Project`.
 - A Kargo `ProjectConfig` with configurable promotion policies for `prepare-release`, `dev`, `integration`, `pre-production`, and `production`.
-- A Kargo `Warehouse` subscribed to the application image repository.
+- A Kargo `Warehouse` subscribed to one or more component image repositories.
 - Default values and JSON Schema validation for important application, Git, image, and environment settings.
 
 ## Future Resources

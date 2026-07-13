@@ -36,30 +36,13 @@
     },
     "artifact": {
       "type": "object",
-      "required": ["image"],
+      "required": ["components"],
       "properties": {
-        "image": {
-          "type": "object",
-          "required": ["repository"],
-          "properties": {
-            "repository": {
-              "type": "string",
-              "minLength": 1
-            },
-            "selectionStrategy": {
-              "type": "string",
-              "minLength": 1
-            },
-            "allowedTags": {
-              "type": "string"
-            },
-            "semverConstraint": {
-              "type": "string"
-            },
-            "discoveryLimit": {
-              "type": "integer",
-              "minimum": 1
-            }
+        "components": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/artifactComponent"
           }
         }
       }
@@ -179,6 +162,40 @@
     }
   },
   "definitions": {
+    "artifactComponent": {
+      "type": "object",
+      "required": ["name", "image"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "image": {
+          "type": "object",
+          "required": ["repository"],
+          "properties": {
+            "repository": {
+              "type": "string",
+              "minLength": 1
+            },
+            "selectionStrategy": {
+              "type": "string",
+              "minLength": 1
+            },
+            "allowedTags": {
+              "type": "string"
+            },
+            "semverConstraint": {
+              "type": "string"
+            },
+            "discoveryLimit": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      }
+    },
     "deployEnvironment": {
       "type": "object",
       "required": ["argocd"],

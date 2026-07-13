@@ -13,12 +13,16 @@ application:
   name: my-app
 
 artifact:
-  image:
-    repository: registry.example.com/team/my-app
-    selectionStrategy: SemVer
-    allowedTags: "^v?[0-9]+\\.[0-9]+\\.[0-9]+$"
-    semverConstraint: "*"
-    discoveryLimit: 20
+  components:
+    - name: my-app
+      image:
+        repository: registry.example.com/team/my-app
+        selectionStrategy: NewestBuild
+        # Optional. Set to a regular expression to restrict eligible tags.
+        allowedTags: ""
+        # Optional. Used only when the selected image strategy requires a SemVer constraint.
+        semverConstraint: ""
+        discoveryLimit: 20
 
 git:
   repository:

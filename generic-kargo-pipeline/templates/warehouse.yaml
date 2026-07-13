@@ -12,9 +12,17 @@ metadata:
   {{- end }}
 spec:
   subscriptions:
+    {{- range .Values.artifact.components }}
     - image:
-        repoURL: {{ .Values.artifact.image.repository | quote }}
-        imageSelectionStrategy: {{ .Values.artifact.image.selectionStrategy | quote }}
-        allowTags: {{ .Values.artifact.image.allowedTags | quote }}
-        semverConstraint: {{ .Values.artifact.image.semverConstraint | quote }}
-        discoveryLimit: {{ .Values.artifact.image.discoveryLimit }}
+        repoURL: {{ .image.repository | quote }}
+        imageSelectionStrategy: {{ default "NewestBuild" .image.selectionStrategy | quote }}
+        {{- with .image.allowedTags }}
+        allowTags: {{ . | quote }}
+        {{- end }}
+        {{- with .image.semverConstraint }}
+        semverConstraint: {{ . | quote }}
+        {{- end }}
+        {{- with .image.discoveryLimit }}
+        discoveryLimit: {{ . }}
+        {{- end }}
+    {{- end }}
