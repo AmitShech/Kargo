@@ -33,7 +33,9 @@ git:
     # Future promotion logic will populate these values from the current Freight.
     releaseTemplate: "release/{{ .ImageTag }}/{{ .Commit }}"
   paths:
-    valuesFile: "environments/{{ .Environment }}/values.yaml"
+    valuesFile:
+      base: values.yaml
+      environment: "values/{{ .Environment }}.yaml"
 
 environments:
   dev:

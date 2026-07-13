@@ -87,8 +87,17 @@
           "type": "object",
           "properties": {
             "valuesFile": {
-              "type": "string",
-              "minLength": 1
+              "type": "object",
+              "properties": {
+                "base": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "environment": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
             }
           }
         }
