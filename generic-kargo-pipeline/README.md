@@ -60,6 +60,8 @@ Environment cleanup and undeploy behavior are intentionally not included yet.
 
 Release branch naming is configured under `git.branches.releaseTemplate`. The default shape is `release/{{ .ImageTag }}/{{ .Commit }}`; future promotion logic will fill those values from the current Freight.
 
+`git.paths.valuesFile` describes where the environment-specific Helm values file lives inside the deployment configuration repository. The default is `environments/{{ .Environment }}/values.yaml`, so future promotion steps can update the values file for the target environment while keeping the same Freight image tag, digest, release branch, and commit moving through the pipeline.
+
 ## Validate The Chart
 
 Run Helm lint:

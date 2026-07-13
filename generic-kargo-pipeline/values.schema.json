@@ -83,14 +83,12 @@
             }
           }
         },
-        "author": {
+        "paths": {
           "type": "object",
           "properties": {
-            "name": {
-              "type": "string"
-            },
-            "email": {
-              "type": "string"
+            "valuesFile": {
+              "type": "string",
+              "minLength": 1
             }
           }
         }

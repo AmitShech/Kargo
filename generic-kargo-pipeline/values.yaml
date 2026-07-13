@@ -32,9 +32,6 @@ git:
     production: master
     # Future promotion logic will populate these values from the current Freight.
     releaseTemplate: "release/{{ .ImageTag }}/{{ .Commit }}"
-  author:
-    name: Kargo Promotion Bot
-    email: kargo-promotion@example.com
   paths:
     valuesFile: "environments/{{ .Environment }}/values.yaml"
 
