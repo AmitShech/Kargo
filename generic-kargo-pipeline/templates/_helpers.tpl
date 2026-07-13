@@ -32,7 +32,7 @@ Return the Kargo Project name. Kargo Project names are also Kubernetes namespace
 Normalize arbitrary input into a Kubernetes resource name.
 */}}
 {{- define "generic-kargo-pipeline.normalizeName" -}}
-{{- . | lower | regexReplaceAll "[^a-z0-9-]" "-" | trimAll "-" | trunc 63 | trimSuffix "-" -}}
+{{- regexReplaceAll "[^a-z0-9-]" (. | lower) "-" | trimAll "-" | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
 {{/*
