@@ -43,6 +43,36 @@ Secret containing credentials for a component developer-owned Git repository.
 {{- end -}}
 
 {{/*
+Validate that a Git credential pair is either complete or empty.
+*/}}
+{{- define "generic-kargo-pipeline.validateGitCredentialPair" -}}
+{{- $scope := .scope -}}
+{{- $username := default "" .username -}}
+{{- $password := default "" .password -}}
+{{- if or (and $username (not $password)) (and $password (not $username)) -}}
+{{- fail (printf "%s credentials must set both username and password or leave both empty" $scope) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Validate values that cannot be expressed cleanly in JSON Schema.
+*/}}
+{{- define "generic-kargo-pipeline.validateValues" -}}
+{{- $componentNames := dict -}}
+{{- range .Values.sources.components }}
+{{- $componentName := include "generic-kargo-pipeline.normalizeName" .name -}}
+{{- if hasKey $componentNames $componentName -}}
+{{- fail (printf "sources.components contains duplicate normalized component name %q" $componentName) -}}
+{{- end -}}
+{{- $_ := set $componentNames $componentName true -}}
+{{- $gitRepository := default dict .git.repository -}}
+{{- include "generic-kargo-pipeline.validateGitCredentialPair" (dict "scope" (printf "component %q developer Git" .name) "username" $gitRepository.username "password" $gitRepository.password) -}}
+{{- end -}}
+{{- $deploymentRepository := default dict .Values.sources.deploymentGit.repository -}}
+{{- include "generic-kargo-pipeline.validateGitCredentialPair" (dict "scope" "deployment Git" "username" $deploymentRepository.username "password" $deploymentRepository.password) -}}
+{{- end -}}
+
+{{/*
 Normalize arbitrary input into a Kubernetes resource name.
 */}}
 {{- define "generic-kargo-pipeline.normalizeName" -}}

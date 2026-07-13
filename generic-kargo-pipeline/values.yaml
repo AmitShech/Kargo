@@ -5,55 +5,42 @@ global:
   labels: {}
   annotations: {}
 
-application:
-  name: my-app
-
 warehouse:
   name: app-images
   interval: 10m
   freightCreationPolicy: Automatic
 
 sources:
-  components:
-    - name: api
-      enabled: true
-      image:
-        repository: registry.example.com/team/my-app-api
-        selectionStrategy: NewestBuild
-        # Optional. Set to a regular expression to restrict eligible tags.
-        allowedTags: ""
-        # Optional. Used only when the selected image strategy requires a SemVer constraint.
-        semverConstraint: ""
-        strictSemvers: false
-        discoveryLimit: 20
-      git:
-        repository:
-          url: https://gitlab.example.com/team/my-app-api.git
-          username: ""
-          password: ""
-        configuration:
-          path: src/main/resources/values.yaml
-      valuesMapping:
-        tagPath: "{{ .Values.application.name }}.components.{{ .name }}.image.tag"
+  componentDefaults:
+    enabled: true
 
-    - name: worker
-      enabled: true
+    image:
+      selectionStrategy: NewestBuild
+      # Optional. Set to a regular expression to restrict eligible tags.
+      allowedTags: ""
+      # Optional. Used only when the selected image strategy requires a SemVer constraint.
+      semverConstraint: ""
+      strictSemvers: false
+      discoveryLimit: 20
+
+    git:
+      configuration:
+        path: src/main/resources/values.yaml
+
+  components:
+    - name: main
+
       image:
-        repository: registry.example.com/team/my-app-worker
-        selectionStrategy: NewestBuild
-        allowedTags: ""
-        semverConstraint: ""
-        strictSemvers: false
-        discoveryLimit: 20
+        repository: registry.example.com/team/my-app
+
       git:
         repository:
-          url: https://gitlab.example.com/team/my-app-worker.git
+          url: https://gitlab.example.com/team/my-app.git
           username: ""
           password: ""
-        configuration:
-          path: src/main/resources/values.yaml
+
       valuesMapping:
-        tagPath: "{{ .Values.application.name }}.components.{{ .name }}.image.tag"
+        tagPath: image.tag
 
   deploymentGit:
     repository:
@@ -61,9 +48,12 @@ sources:
       username: ""
       password: ""
 
+    branches:
+      source: develop
+      production: master
+
     subscription:
       enabled: true
-      branch: develop
       commitSelectionStrategy: NewestFromBranch
       discoveryLimit: 15
       includePaths:
@@ -72,10 +62,6 @@ sources:
       excludePaths:
         - kargo/**
         - release-metadata/**
-
-    branches:
-      source: develop
-      production: master
 
     paths:
       valuesFiles:
@@ -101,10 +87,6 @@ pipeline:
         enabled: true
         templateName: my-app-dev-qa
         timeout: 30m
-        job:
-          image:
-            repository: registry.example.com/team/my-app-qa
-            tag: latest
 
     integration:
       name: integration
@@ -118,10 +100,6 @@ pipeline:
         enabled: true
         templateName: my-app-integration-verification
         timeout: 45m
-        job:
-          image:
-            repository: registry.example.com/team/my-app-integration-tests
-            tag: latest
 
     preProduction:
       name: pre-production

@@ -1,6 +1,8 @@
-# generic-kargo-pipeline
+﻿# generic-kargo-pipeline
 
-`generic-kargo-pipeline` is a reusable Helm chart foundation for a generic Kargo-based continuous delivery promotion pipeline. It is intended for teams that own deployment and promotion while application build and image publishing happen elsewhere.
+`generic-kargo-pipeline` is a reusable Helm chart foundation for a generic Kargo-based continuous delivery promotion pipeline. It is for teams that own deployment and promotion while application build and image publishing happen elsewhere.
+
+Install only one chart instance per Kargo project namespace. The chart intentionally creates project-scoped resources with stable names.
 
 ## Current Scope
 
@@ -11,7 +13,7 @@ This chart currently creates only:
 - Kargo `Warehouse`
 - Kubernetes Git credential `Secret` resources
 
-It does not create Kargo `Stage` resources, `AnalysisTemplate` resources, `spec.verification`, Argo CD promotion steps, ServiceNow API calls, GitLab merge request API calls, cleanup, or undeploy logic yet.
+It does not create Kargo `Stage` resources, `AnalysisTemplate` resources, native Kargo `spec.verification`, Argo CD promotion steps, ServiceNow API calls, GitLab merge request API calls, cleanup, or undeploy logic yet.
 
 ## Intended Promotion Flow
 
@@ -43,66 +45,120 @@ production
   run production smoke verification
 ```
 
-Everything before Production is intended to be automatic. Production auto-promotion defaults to disabled so a user must manually promote the prepared Freight.
+Everything before Production is intended to be automatic. Production auto-promotion defaults to disabled so a user must manually promote prepared Freight.
 
-Install only one instance of this chart in a Kargo project namespace. The chart creates project-scoped resources such as the Warehouse, ProjectConfig, and Git credential Secrets with stable names.
+## Component Defaults
 
-## Multi-Component Sources
+Common component settings live under `sources.componentDefaults`. Helm merges these defaults with every entry in `sources.components`; component-specific values override the defaults.
 
-Release inputs are configured under `sources.components`. Each component represents one deployable application component and contains:
+```yaml
+sources:
+  componentDefaults:
+    enabled: true
+    image:
+      selectionStrategy: NewestBuild
+      allowedTags: ""
+      semverConstraint: ""
+      strictSemvers: false
+      discoveryLimit: 20
+    git:
+      configuration:
+        path: src/main/resources/values.yaml
+```
 
-- image repository watched by the Warehouse
-- developer-owned Git repository
-- developer configuration file path
-- Helm values mapping for future `prepare-release` logic
+The default chart values include one example component named `main`:
 
-The component image tag and developer Git tag are intentionally the same value. For example, image tag `2.5.1` maps to developer Git tag `2.5.1`; there is no configurable tag mapping strategy.
+```yaml
+sources:
+  components:
+    - name: main
+      image:
+        repository: registry.example.com/team/my-app
+      git:
+        repository:
+          url: https://gitlab.example.com/team/my-app.git
+          username: ""
+          password: ""
+      valuesMapping:
+        tagPath: image.tag
+```
+
+## Multiple Components
+
+Applications can replace the component list with their own components. Each component can rely on defaults or override them.
 
 ```yaml
 sources:
   components:
     - name: api
-      enabled: true
       image:
         repository: registry.example.com/team/my-app-api
-        selectionStrategy: NewestBuild
-        strictSemvers: false
+        selectionStrategy: SemVer
+        semverConstraint: ">=1.0.0 <2.0.0"
       git:
         repository:
           url: https://gitlab.example.com/team/my-app-api.git
-          username: ""
-          password: ""
-        configuration:
-          path: src/main/resources/values.yaml
       valuesMapping:
-        tagPath: "{{ .Values.application.name }}.components.{{ .name }}.image.tag"
+        tagPath: services.backend.api.image.tag
+
+    - name: worker
+      enabled: false
+      image:
+        repository: registry.example.com/team/my-app-worker
+      git:
+        repository:
+          url: https://gitlab.example.com/team/my-app-worker.git
+      valuesMapping:
+        tagPath: workloads.orders.imageTag
 ```
 
-The component `name` is required because future stages will use it to map Freight artifacts into deployment values.
+Disabled components do not create Warehouse image subscriptions or component developer Git credential Secrets. They are still validated for duplicate normalized names and incomplete credentials.
 
-`enabled` controls whether the component source is active. When `enabled: false`, the component remains configured for future use, but the chart does not render its Warehouse image subscription or component developer Git credential Secret.
+Component names must be unique after Kubernetes-name normalization. For example, `API_Service` and `api-service` both normalize to `api-service` and will fail rendering.
 
-`valuesMapping.tagPath` is the default deployment values path template for the component image tag. Chart creation can override this field when an application uses a different values hierarchy. Future logic should evaluate it while iterating over a component, where `.Values.application.name` is the application name and `.name` is the current component name. For example, component `api` resolves to:
+## Literal Values Path
+
+`valuesMapping.tagPath` is a final application-specific YAML path that future `prepare-release` logic will pass directly to a Kargo YAML update operation. It is not a Helm template.
+
+Examples:
 
 ```text
-my-app.components.api.image.tag
+image.tag
+services.backend.api.image.tag
+workloads.orders.imageTag
 ```
+
+Do not use nested template expressions such as `{{ .Values.application.name }}` in this field.
 
 ## Release Sources
 
-The Warehouse can create Freight from two kinds of release triggers:
+The Warehouse can create Freight from:
 
-1. A new component image tag.
-2. A relevant deployment Git configuration change.
+- the deployment Git repository, when `sources.deploymentGit.subscription.enabled` is true
+- one image repository per enabled component
 
-The deployment Git repository is configured under `sources.deploymentGit`. Its Warehouse subscription follows the explicit `sources.deploymentGit.subscription.branch` value.
+An empty Warehouse is allowed intentionally. If deployment Git is disabled and no component is enabled, Helm install/upgrade notes show this warning:
+
+```text
+WARNING:
+The Kargo Warehouse currently has no active subscriptions.
+Enable at least one component or the deployment Git subscription before expecting Freight creation.
+```
+
+## Deployment Git Branches
+
+`sources.deploymentGit.branches.source` is both the Warehouse-watched branch and the future release branch base.
 
 ```yaml
 sources:
   deploymentGit:
+    branches:
+      source: develop
+      production: master
     subscription:
       enabled: true
-      branch: develop
+      commitSelectionStrategy: NewestFromBranch
+      discoveryLimit: 15
       includePaths:
         - values.yaml
         - values/**
@@ -111,51 +167,48 @@ sources:
         - release-metadata/**
 ```
 
-Only commits matching `includePaths` are considered configuration release changes. Pipeline-generated files should be listed in `excludePaths` to avoid recursive Freight creation when Kargo writes metadata or release artifacts back to Git.
+Only commits matching `includePaths` are considered configuration release changes. Pipeline-generated paths should be listed in `excludePaths` to avoid recursive Freight creation.
+
+## Image Selection
+
+Each component can configure:
+
+- `selectionStrategy`: `NewestBuild`, `SemVer`, or `Lexical`
+- `allowedTags`: optional regular expression rendered as Warehouse `allowTags` when non-empty
+- `semverConstraint`: optional SemVer constraint rendered when non-empty
+- `strictSemvers`: boolean rendered explicitly, including `false`
+- `discoveryLimit`: integer greater than or equal to 1
+
+`strictSemvers` has been verified against the installed Kargo CRD for this project.
 
 ## Pipeline Structure
 
-Promotion settings live under `pipeline.stages`.
+Promotion settings live under `pipeline.stages`. Deployment settings exist only under `dev`, `integration`, and `production`. Verification settings also live only under deployment stages and are placeholders for future Kargo verification resources.
 
-Deployment stages (`dev`, `integration`, and `production`) have a `deployment` block with the target namespace and Argo CD Application identity. They also have verification settings that are placeholders for future Kargo verification resources.
+`prepareRelease` and `preProduction` do not control Argo CD Applications. Production `autoPromotionEnabled` defaults to `false`.
 
-Non-deployment stages (`prepareRelease` and `preProduction`) do not have Argo CD deployment settings.
+## Credentials
 
-```yaml
-pipeline:
-  stages:
-    prepareRelease:
-      name: prepare-release
-      autoPromotionEnabled: true
-      releaseBranch: release/${{ imageFrom(vars.imageRepository).Tag }}
+Git credentials are kept directly in values and are optional. Do not commit real passwords, tokens, or other secret values.
 
-    dev:
-      name: dev
-      autoPromotionEnabled: true
-      deployment:
-        namespace: my-app-dev
-        argocd:
-          applicationName: my-app-dev
-          namespace: argocd
-      verification:
-        enabled: true
-        templateName: my-app-dev-qa
-        timeout: 30m
+A Git credential Secret renders only when both `username` and `password` are non-empty. Helm rendering fails when exactly one field is provided.
+
+Generated Secret names are stable:
+
+```text
+deploymentgit
+<normalized-component-name>-devgit
 ```
 
-The release branch value is a literal Kargo expression for future Stage logic; Helm does not evaluate it.
+Examples:
 
-## Git Credential Secrets
+```text
+main-devgit
+api-devgit
+worker-devgit
+```
 
-Git credentials are kept in values and are optional. A Secret renders only when both `username` and `password` are non-empty.
-
-The chart creates one deployment Git credential Secret from `sources.deploymentGit.repository` and one component developer Git credential Secret per component with credentials. The deployment Git Secret renders as `deploymentgit`. Component Secret names include the normalized component name, for example `api-devgit`.
-
-The chart assumes each component uses a separate developer Git repository. If two components share the same developer repository and both provide credentials, the current template renders one Secret per component.
-
-Do not commit real passwords, tokens, or other secret values to Git.
-
-## Chart Structure
+## File Layout
 
 ```text
 generic-kargo-pipeline/
@@ -164,13 +217,14 @@ generic-kargo-pipeline/
 |-- values.schema.json
 |-- values.yaml
 `-- templates/
+    |-- NOTES.txt
     |-- _helpers.tpl
     |-- project-config.yaml
     |-- project.yaml
     |-- warehouse.yaml
     `-- secrets/
-        |-- chart-git-secret.yaml
-        `-- developers-git-secret.yaml
+        |-- component-dev-git.yaml
+        `-- deployment-git.yaml
 ```
 
 ## Future Resources
@@ -190,28 +244,30 @@ Environment cleanup and undeploy behavior are intentionally not included yet.
 
 Run Helm lint:
 
-```sh
+```bash
 helm lint ./generic-kargo-pipeline
 ```
 
 Render the chart:
 
-```sh
+```bash
 helm template my-app-promotion ./generic-kargo-pipeline \
   --namespace my-app-promotion
 ```
 
 Render with an application-specific values file:
 
-```sh
+```bash
 helm template my-app-promotion ./generic-kargo-pipeline \
   --namespace my-app-promotion \
   --values ./my-app-values.yaml
 ```
 
+Render with credentials and multiple components by adding an override file that sets deployment Git credentials and component repository credentials. The chart will render `deploymentgit` plus one `<component>-devgit` Secret per enabled component with complete credentials.
+
 Install or upgrade with an application-specific values file:
 
-```sh
+```bash
 helm upgrade --install my-app-promotion ./generic-kargo-pipeline \
   --namespace my-app-promotion \
   --create-namespace \

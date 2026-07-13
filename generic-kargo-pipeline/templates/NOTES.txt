@@ -1,0 +1,13 @@
+{{- $componentDefaults := .Values.sources.componentDefaults -}}
+{{- $hasEnabledComponents := false -}}
+{{- range .Values.sources.components }}
+{{- $component := mergeOverwrite (deepCopy $componentDefaults) . -}}
+{{- if $component.enabled }}
+{{- $hasEnabledComponents = true -}}
+{{- end }}
+{{- end }}
+{{- if and (not .Values.sources.deploymentGit.subscription.enabled) (not $hasEnabledComponents) }}
+WARNING:
+The Kargo Warehouse currently has no active subscriptions.
+Enable at least one component or the deployment Git subscription before expecting Freight creation.
+{{- end }}

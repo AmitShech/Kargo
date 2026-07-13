@@ -1,10 +1,11 @@
-{{- $componentNames := dict -}}
+{{- include "generic-kargo-pipeline.validateValues" . -}}
+{{- $componentDefaults := .Values.sources.componentDefaults -}}
+{{- $hasEnabledComponents := false -}}
 {{- range .Values.sources.components }}
-{{- $componentName := include "generic-kargo-pipeline.normalizeName" .name -}}
-{{- if hasKey $componentNames $componentName }}
-{{- fail (printf "sources.components contains duplicate component name %q after Kubernetes name normalization" .name) }}
-{{- end }}
-{{- $_ := set $componentNames $componentName true -}}
+{{- $component := mergeOverwrite (deepCopy $componentDefaults) . -}}
+{{- if $component.enabled -}}
+{{- $hasEnabledComponents = true -}}
+{{- end -}}
 {{- end }}
 apiVersion: kargo.akuity.io/v1alpha1
 kind: Warehouse
@@ -21,10 +22,13 @@ spec:
   interval: {{ .Values.warehouse.interval | quote }}
   freightCreationPolicy: {{ .Values.warehouse.freightCreationPolicy | quote }}
   subscriptions:
+{{- if not (or .Values.sources.deploymentGit.subscription.enabled $hasEnabledComponents) }}
+    []
+{{- end }}
 {{- if .Values.sources.deploymentGit.subscription.enabled }}
     - git:
         repoURL: {{ .Values.sources.deploymentGit.repository.url | quote }}
-        branch: {{ .Values.sources.deploymentGit.subscription.branch | quote }}
+        branch: {{ .Values.sources.deploymentGit.branches.source | quote }}
         commitSelectionStrategy: {{ default "NewestFromBranch" .Values.sources.deploymentGit.subscription.commitSelectionStrategy | quote }}
         {{- with .Values.sources.deploymentGit.subscription.discoveryLimit }}
         discoveryLimit: {{ . }}
@@ -39,20 +43,21 @@ spec:
         {{- end }}
 {{- end }}
 {{- range .Values.sources.components }}
-{{- if .enabled }}
+{{- $component := mergeOverwrite (deepCopy $componentDefaults) . -}}
+{{- if $component.enabled }}
     - image:
-        repoURL: {{ .image.repository | quote }}
-        imageSelectionStrategy: {{ default "NewestBuild" .image.selectionStrategy | quote }}
-        {{- with .image.allowedTags }}
+        repoURL: {{ $component.image.repository | quote }}
+        imageSelectionStrategy: {{ default "NewestBuild" $component.image.selectionStrategy | quote }}
+        {{- with $component.image.allowedTags }}
         allowTags: {{ . | quote }}
         {{- end }}
-        {{- with .image.semverConstraint }}
+        {{- with $component.image.semverConstraint }}
         semverConstraint: {{ . | quote }}
         {{- end }}
-        {{- if hasKey .image "strictSemvers" }}
-        strictSemvers: {{ .image.strictSemvers }}
+        {{- if hasKey $component.image "strictSemvers" }}
+        strictSemvers: {{ $component.image.strictSemvers }}
         {{- end }}
-        {{- with .image.discoveryLimit }}
+        {{- with $component.image.discoveryLimit }}
         discoveryLimit: {{ . }}
         {{- end }}
 {{- end }}

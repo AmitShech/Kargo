@@ -1,4 +1,4 @@
-# Codex Project Knowledge
+﻿# Codex Project Knowledge
 
 This repository contains a reusable Helm chart for a generic Kargo-based CD promotion pipeline. The chart is intended for deployment and promotion ownership only; application build and development stay outside this project.
 
@@ -13,17 +13,6 @@ Chart path:
 ```text
 generic-kargo-pipeline/
 ```
-
-## Project Goal
-
-The pipeline starts when a release source changes. Kargo should prepare deployment configuration, promote the same immutable release candidate through Dev and Integration, run native Kargo verification after each deployment, prepare the production change, and wait for a user to manually trigger Production.
-
-Release sources are:
-
-- new component image tags
-- relevant deployment Git configuration changes
-
-The key technologies are Kargo, Argo CD, GitLab, Helm, Kubernetes/OpenShift, n8n, and ServiceNow.
 
 ## Current Scope
 
@@ -91,9 +80,9 @@ There is no environment cleanup or undeploy step yet.
 - The same immutable release candidate must move through all environments.
 - Preserve image tag, image digest, release branch, release commit, and Helm/configuration revision.
 - Environment-specific values may change, but the application artifact must not be rebuilt or replaced between environments.
-- The chart must stay generic. Application-specific settings belong in `values.yaml`, not hard-coded templates.
-- Credentials remain in values because the user explicitly does not require additional credential-protection logic.
-- Git credential Secrets render only when both username and password are non-empty.
+- The chart must stay generic. Application-specific settings belong in values, not hard-coded templates.
+- There is no `application.name` value in the foundation model. Application identity may be added later for ServiceNow, notifications, or release metadata.
+- Component image tag equals component developer Git tag. Do not add a configurable tag mapping strategy unless the user changes this decision.
 
 ## Current File Layout
 
@@ -104,13 +93,14 @@ generic-kargo-pipeline/
 |-- values.schema.json
 |-- values.yaml
 `-- templates/
+    |-- NOTES.txt
     |-- _helpers.tpl
     |-- project-config.yaml
     |-- project.yaml
     |-- warehouse.yaml
     `-- secrets/
-        |-- chart-git-secret.yaml
-        `-- developers-git-secret.yaml
+        |-- component-dev-git.yaml
+        `-- deployment-git.yaml
 ```
 
 ## Naming Decisions
@@ -121,7 +111,7 @@ The Kargo Project name is set directly from the Helm release namespace:
 {{ .Release.Namespace }}
 ```
 
-Do not replace it with the helper. The helper `generic-kargo-pipeline.projectName` may still be used for labels and related resource names.
+Do not replace it with the helper in `project.yaml`. The helper `generic-kargo-pipeline.projectName` may still be used for labels and related resource names.
 
 Explicit `metadata.namespace` fields were removed from templates. Namespaced resources should be installed into the Helm release namespace naturally.
 
@@ -136,15 +126,13 @@ global:
   labels: {}
   annotations: {}
 
-application:
-  name: my-app
-
 warehouse:
   name: app-images
   interval: 10m
   freightCreationPolicy: Automatic
 
 sources:
+  componentDefaults: {}
   components: []
   deploymentGit: {}
 
@@ -154,55 +142,91 @@ pipeline:
 integrations: {}
 ```
 
-Previous top-level source, stage, and verification sections were consolidated into this model.
+The removed `application.name` section must not be reintroduced unless a future feature actually needs application identity.
 
-## Source Model
+## Component Defaults
 
-`sources.components` supports multiple components. Each component has:
+`sources.componentDefaults` provides defaults merged into every configured component. Templates must use a deep copy before merge so the original values are not mutated.
 
-- required unique `name`
-- one image repository
-- one developer-owned Git repository
-- one developer configuration file path
-- one values mapping for future deployment values updates
-- an `enabled` flag that controls whether the component is active in current chart resources
+Pattern:
 
-Example:
+```gotemplate
+{{- $defaults := deepCopy $.Values.sources.componentDefaults -}}
+{{- $component := mergeOverwrite $defaults . -}}
+```
+
+Default component values:
+
+```yaml
+sources:
+  componentDefaults:
+    enabled: true
+    image:
+      selectionStrategy: NewestBuild
+      allowedTags: ""
+      semverConstraint: ""
+      strictSemvers: false
+      discoveryLimit: 20
+    git:
+      configuration:
+        path: src/main/resources/values.yaml
+```
+
+The default `values.yaml` contains one example component named `main`:
 
 ```yaml
 sources:
   components:
-    - name: api
-      enabled: true
+    - name: main
       image:
-        repository: registry.example.com/team/my-app-api
-        selectionStrategy: NewestBuild
-        allowedTags: ""
-        semverConstraint: ""
-        strictSemvers: false
-        discoveryLimit: 20
+        repository: registry.example.com/team/my-app
       git:
         repository:
-          url: https://gitlab.example.com/team/my-app-api.git
+          url: https://gitlab.example.com/team/my-app.git
           username: ""
           password: ""
-        configuration:
-          path: src/main/resources/values.yaml
       valuesMapping:
-        tagPath: "{{ .Values.application.name }}.components.{{ .name }}.image.tag"
+        tagPath: image.tag
 ```
 
-The component image tag and developer Git tag are always identical. Do not add a configurable tag-mapping strategy unless the user changes this decision.
+Component-specific values override defaults. Disabled components do not render Warehouse image subscriptions or component developer Git credential Secrets. Future Stage logic should also skip disabled components.
 
-When `sources.components[].enabled` is `false`, the component remains configured for future use, but the chart does not render its Warehouse image subscription or component developer Git credential Secret.
+## Component Values Mapping
 
-`valuesMapping` is not used by the current Warehouse. It is reserved for the future `prepare-release` Stage, which will map Freight image repository, tag, and digest into deployment Helm values.
+Every component has a `valuesMapping` block with a final literal YAML path:
 
-`valuesMapping.tagPath` is the default deployment values path template for the component image tag. Chart creation can override this field when an application uses a different values hierarchy. Future logic should evaluate it while iterating over a component, where `.Values.application.name` is the application name and `.name` is the current component name. For component `api`, future logic should derive:
+```yaml
+valuesMapping:
+  tagPath: image.tag
+```
+
+Other valid examples:
 
 ```text
-my-app.components.api.image.tag
+services.backend.api.image.tag
+workloads.consumers.orders.imageTag
 ```
+
+`valuesMapping.tagPath` is not a Helm template and must not contain nested expressions such as `{{ .Values.application.name }}`. The future `prepare-release` Stage will pass this literal path directly to a Kargo YAML update operation.
+
+Do not add repository or digest paths during the foundation work. Keep only `valuesMapping.tagPath` until explicitly requested.
+
+## Component Validation
+
+Helm helper validation rejects duplicate component names after Kubernetes-name normalization. Examples that collide:
+
+```text
+API_Service
+api-service
+```
+
+Both normalize to:
+
+```text
+api-service
+```
+
+This validation runs for all configured components, including disabled components, because duplicate normalized names would create Secret name collisions, future Stage mapping ambiguity, and duplicate logical components.
 
 ## Deployment Git
 
@@ -215,9 +239,11 @@ sources:
       url: https://gitlab.example.com/team/my-app-deployment.git
       username: ""
       password: ""
+    branches:
+      source: develop
+      production: master
     subscription:
       enabled: true
-      branch: develop
       commitSelectionStrategy: NewestFromBranch
       discoveryLimit: 15
       includePaths:
@@ -226,18 +252,56 @@ sources:
       excludePaths:
         - kargo/**
         - release-metadata/**
-    branches:
-      source: develop
-      production: master
     paths:
       valuesFiles:
         base: values.yaml
         environment: values/${{ vars.environment }}.yaml
 ```
 
-The Warehouse subscription branch is `sources.deploymentGit.subscription.branch`. Do not derive it implicitly from `branches.source`.
+The Warehouse Git subscription uses `sources.deploymentGit.branches.source`. This is both the Warehouse-watched branch and the future release branch base. Do not use the removed `sources.deploymentGit.subscription.branch` field.
 
 Deployment Git remains subscribed because configuration-only releases can create Freight. Only paths matching `includePaths` should count as configuration changes. Pipeline-generated paths should be excluded to avoid recursive Freight creation.
+
+## Warehouse Behavior
+
+The Warehouse renders:
+
+- one deployment Git subscription when `sources.deploymentGit.subscription.enabled` is true
+- one image subscription per enabled component
+
+The Warehouse name defaults to `app-images`.
+
+Empty Warehouse behavior is intentional. If deployment Git subscription is disabled and all components are disabled, rendering still succeeds and the Warehouse renders with no active subscriptions. `templates/NOTES.txt` displays:
+
+```text
+WARNING:
+The Kargo Warehouse currently has no active subscriptions.
+Enable at least one component or the deployment Git subscription before expecting Freight creation.
+```
+
+## Image Selection
+
+Supported image fields:
+
+```yaml
+image:
+  repository: registry.example.com/team/my-app
+  selectionStrategy: NewestBuild
+  allowedTags: ""
+  semverConstraint: ""
+  strictSemvers: false
+  discoveryLimit: 20
+```
+
+Supported selection strategies:
+
+```text
+NewestBuild
+SemVer
+Lexical
+```
+
+`allowedTags` renders as Warehouse `allowTags` when non-empty. `semverConstraint` renders when non-empty. `strictSemvers` must render as a boolean, including explicit `false`; do not use `with` for this field. `strictSemvers` has been verified against the installed Kargo CRD.
 
 ## Pipeline Model
 
@@ -270,19 +334,7 @@ pipeline:
       verification: {}
 ```
 
-`prepareRelease.releaseBranch` is a literal Kargo expression for future Stage logic. Helm must not evaluate it. The branch name no longer includes commit.
-
-Deployment stages have:
-
-```yaml
-deployment:
-  namespace: my-app-dev
-  argocd:
-    applicationName: my-app-dev
-    namespace: argocd
-```
-
-Verification settings live only under deployment stages and are placeholders for future resources.
+Deployment settings exist only under `dev`, `integration`, and `production`. Verification settings exist only under deployment stages and are placeholders for future resources. `prepareRelease.releaseBranch` is a literal Kargo expression for future Stage logic. Helm must not evaluate it.
 
 ## Integrations
 
@@ -308,51 +360,62 @@ No integration Secrets or API calls are implemented yet.
 
 Secret templates:
 
-- `templates/secrets/chart-git-secret.yaml`
-- `templates/secrets/developers-git-secret.yaml`
+- `templates/secrets/deployment-git.yaml`
+- `templates/secrets/component-dev-git.yaml`
 
-Deployment Git credentials come from `sources.deploymentGit.repository`.
-
-Component developer Git credentials come from `sources.components[].git.repository`. The component Secret name includes the normalized component name, for example:
+Deployment Git credentials come from `sources.deploymentGit.repository` and render as:
 
 ```text
+deploymentgit
+```
+
+Component developer Git credentials come from `sources.components[].git.repository`. Component Secret names include the normalized component name:
+
+```text
+main-devgit
 api-devgit
 worker-devgit
 ```
 
-The deployment Git Secret name renders as `deploymentgit`.
+Reusable helpers must be preserved for future Stage templates:
+
+- `generic-kargo-pipeline.deploymentGitSecretName`
+- `generic-kargo-pipeline.componentDevGitSecretName`
+
+A Secret renders only when both `username` and `password` are non-empty. Helm validation fails if exactly one field is provided. This validation applies to deployment Git and every configured component developer Git credential pair.
 
 The chart assumes each component has a separate developer repository. Shared developer repositories may render one Secret per component if both components provide credentials.
 
-## Warehouse Behavior
+## Schema Rules
 
-The Warehouse renders:
+`values.schema.json` should reject stale fields, including:
 
-- one deployment Git subscription when `sources.deploymentGit.subscription.enabled` is true
-- one image subscription per enabled `sources.components[]`
+- top-level `application`
+- `sources.deploymentGit.subscription.branch`
+- old `chartGit` or `developersGit` fields
+- templated `valuesMapping.tagPath` values containing `{` or `}`
 
-Component names are not rendered inside Warehouse image subscriptions because Kargo image subscriptions do not need them.
-
-Current default Warehouse values:
-
-```yaml
-warehouse:
-  name: app-images
-  interval: 10m
-  freightCreationPolicy: Automatic
-```
+The schema keeps labels and annotations extensible while chart-owned structures use `additionalProperties: false` where practical.
 
 ## Validation Workflow
 
 Run:
 
-```sh
+```bash
 helm lint ./generic-kargo-pipeline
 helm template my-app-promotion ./generic-kargo-pipeline --namespace my-app-promotion
-git status
 ```
 
-Also validate `values.schema.json` as JSON before committing.
+Also validate these scenarios before committing foundation changes:
+
+- default values: one deployment Git subscription, one `main` image subscription, no Secrets, no Stages, no AnalysisTemplates
+- multiple components: two image subscriptions, defaults applied, overrides win, literal tag paths preserved in values
+- credentials enabled: `deploymentgit`, `api-devgit`, and `worker-devgit` render
+- disabled component: no image subscription and no developer Git Secret for that component
+- duplicate normalized names: rendering fails with a clear duplicate normalized name message
+- incomplete credentials: rendering fails when exactly one of username/password is set
+- empty Warehouse: rendering succeeds and NOTES warning appears for install/upgrade output
+- schema: JSON parses, removed fields are rejected, defaults and overrides validate
 
 Known benign Helm lint output:
 
@@ -378,8 +441,9 @@ Before installing into a real cluster, verify these fields against the installed
 - `Warehouse.spec.subscriptions[].image.imageSelectionStrategy`
 - `Warehouse.spec.subscriptions[].image.allowTags`
 - `Warehouse.spec.subscriptions[].image.semverConstraint`
-- `Warehouse.spec.subscriptions[].image.strictSemvers`
 - `Warehouse.spec.subscriptions[].image.discoveryLimit`
+
+`Warehouse.spec.subscriptions[].image.strictSemvers` is intentionally not listed here because it has been verified against the installed Kargo CRD.
 
 ## User Preferences Captured
 
@@ -387,7 +451,10 @@ Before installing into a real cluster, verify these fields against the installed
 - Prefer values-driven configuration over hard-coded application settings.
 - Use `sources.deploymentGit` for deployment/chart configuration Git.
 - Use `sources.components` for component image and developer Git sources.
+- Keep `sources.componentDefaults` as the shared component default layer.
 - Component image tag equals component developer Git tag.
+- Keep `valuesMapping.tagPath` literal.
+- Allow an intentionally empty Warehouse.
 - Do not add cleanup yet.
 - Do not add Stages or verification templates until explicitly requested.
 - Commit and push completed changes after validation when asked to implement.
