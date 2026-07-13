@@ -45,6 +45,8 @@ production
 
 Everything before Production is intended to be automatic. Production auto-promotion defaults to disabled so a user must manually promote the prepared Freight.
 
+Install only one instance of this chart in a Kargo project namespace. The chart creates project-scoped resources such as the Warehouse, ProjectConfig, and Git credential Secrets with stable names.
+
 ## Multi-Component Sources
 
 Release inputs are configured under `sources.components`. Each component represents one deployable application component and contains:
@@ -147,7 +149,7 @@ The release branch value is a literal Kargo expression for future Stage logic; H
 
 Git credentials are kept in values and are optional. A Secret renders only when both `username` and `password` are non-empty.
 
-The chart creates one deployment Git credential Secret from `sources.deploymentGit.repository` and one component developer Git credential Secret per component with credentials. The deployment Git Secret renders as `deploymentgit`. Component Secret names include the normalized component name, for example `api-componentdevgit`.
+The chart creates one deployment Git credential Secret from `sources.deploymentGit.repository` and one component developer Git credential Secret per component with credentials. The deployment Git Secret renders as `deploymentgit`. Component Secret names include the normalized component name, for example `api-devgit`.
 
 The chart assumes each component uses a separate developer Git repository. If two components share the same developer repository and both provide credentials, the current template renders one Secret per component.
 

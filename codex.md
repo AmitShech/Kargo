@@ -125,6 +125,8 @@ Do not replace it with the helper. The helper `generic-kargo-pipeline.projectNam
 
 Explicit `metadata.namespace` fields were removed from templates. Namespaced resources should be installed into the Helm release namespace naturally.
 
+Install only one chart instance in a Kargo project namespace. The chart intentionally uses stable project-scoped names for the Warehouse, ProjectConfig, and Git credential Secrets.
+
 ## Values Model
 
 The chart uses these top-level sections:
@@ -314,8 +316,8 @@ Deployment Git credentials come from `sources.deploymentGit.repository`.
 Component developer Git credentials come from `sources.components[].git.repository`. The component Secret name includes the normalized component name, for example:
 
 ```text
-api-componentdevgit
-worker-componentdevgit
+api-devgit
+worker-devgit
 ```
 
 The deployment Git Secret name renders as `deploymentgit`.
