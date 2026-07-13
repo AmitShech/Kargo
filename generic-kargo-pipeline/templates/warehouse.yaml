@@ -49,6 +49,9 @@ spec:
         {{- with .image.semverConstraint }}
         semverConstraint: {{ . | quote }}
         {{- end }}
+        {{- if hasKey .image "strictSemvers" }}
+        strictSemvers: {{ .image.strictSemvers }}
+        {{- end }}
         {{- with .image.discoveryLimit }}
         discoveryLimit: {{ . }}
         {{- end }}

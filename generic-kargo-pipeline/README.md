@@ -64,6 +64,7 @@ sources:
       image:
         repository: registry.example.com/team/my-app-api
         selectionStrategy: NewestBuild
+        strictSemvers: false
       git:
         repository:
           url: https://gitlab.example.com/team/my-app-api.git
@@ -146,7 +147,7 @@ The release branch value is a literal Kargo expression for future Stage logic; H
 
 Git credentials are kept in values and are optional. A Secret renders only when both `username` and `password` are non-empty.
 
-The chart creates one deployment Git credential Secret from `sources.deploymentGit.repository` and one component developer Git credential Secret per component with credentials. Component Secret names include the normalized component name.
+The chart creates one deployment Git credential Secret from `sources.deploymentGit.repository` and one component developer Git credential Secret per component with credentials. The deployment Git Secret renders as `deploymentgit`. Component Secret names include the normalized component name, for example `api-componentdevgit`.
 
 The chart assumes each component uses a separate developer Git repository. If two components share the same developer repository and both provide credentials, the current template renders one Secret per component.
 

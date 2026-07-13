@@ -24,6 +24,7 @@ sources:
         allowedTags: ""
         # Optional. Used only when the selected image strategy requires a SemVer constraint.
         semverConstraint: ""
+        strictSemvers: false
         discoveryLimit: 20
       git:
         repository:
@@ -42,6 +43,7 @@ sources:
         selectionStrategy: NewestBuild
         allowedTags: ""
         semverConstraint: ""
+        strictSemvers: false
         discoveryLimit: 20
       git:
         repository:

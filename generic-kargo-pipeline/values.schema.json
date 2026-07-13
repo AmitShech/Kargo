@@ -136,6 +136,7 @@
             "selectionStrategy": { "type": "string", "enum": ["NewestBuild", "SemVer", "Lexical"] },
             "allowedTags": { "type": "string" },
             "semverConstraint": { "type": "string" },
+            "strictSemvers": { "type": "boolean" },
             "discoveryLimit": { "type": "integer", "minimum": 1 }
           }
         },

@@ -177,6 +177,7 @@ sources:
         selectionStrategy: NewestBuild
         allowedTags: ""
         semverConstraint: ""
+        strictSemvers: false
         discoveryLimit: 20
       git:
         repository:
@@ -313,9 +314,11 @@ Deployment Git credentials come from `sources.deploymentGit.repository`.
 Component developer Git credentials come from `sources.components[].git.repository`. The component Secret name includes the normalized component name, for example:
 
 ```text
-<release>-api-developer-git
-<release>-worker-developer-git
+api-componentdevgit
+worker-componentdevgit
 ```
+
+The deployment Git Secret name renders as `deploymentgit`.
 
 The chart assumes each component has a separate developer repository. Shared developer repositories may render one Secret per component if both components provide credentials.
 
@@ -373,6 +376,7 @@ Before installing into a real cluster, verify these fields against the installed
 - `Warehouse.spec.subscriptions[].image.imageSelectionStrategy`
 - `Warehouse.spec.subscriptions[].image.allowTags`
 - `Warehouse.spec.subscriptions[].image.semverConstraint`
+- `Warehouse.spec.subscriptions[].image.strictSemvers`
 - `Warehouse.spec.subscriptions[].image.discoveryLimit`
 
 ## User Preferences Captured
