@@ -42,7 +42,7 @@ This initial chart foundation creates:
 - A Kargo `ProjectConfig` with configurable promotion policies for `prepare-release`, `dev`, `integration`, `pre-production`, and `production`.
 - A Kargo `Warehouse` subscribed to one or more component image repositories.
 - Kubernetes `Secret` resources for chart Git and developer Git credentials.
-- Default values and JSON Schema validation for important application, Git, image, and environment settings.
+- Default values and JSON Schema validation for important artifact, Git, image, and environment settings.
 
 The Kargo Project name is derived from the Helm release namespace. Deploy the chart into the namespace that should own the Kargo project.
 
@@ -65,7 +65,7 @@ Release branch naming is configured under `chartGit.branches.releaseTemplate`. T
 
 `developersGit` describes the developer-owned Git repository used by future chart creation logic. `configurationPathFile` points to the file that should be copied from the developer repository tag associated with the current Freight. This is intentionally separate from `chartGit`, which is the deployment/chart configuration repository managed by this pipeline.
 
-The chart creates Kubernetes `Secret` resources for `chartGit.repository.username/password` and `developersGit.repository.username/password`. The default values are placeholders only; do not commit real credentials in an application values file.
+The chart creates Kubernetes `Secret` resources when `chartGit.repository.username/password` or `developersGit.repository.username/password` are provided. Defaults are empty so a basic render does not create placeholder credential Secrets.
 
 ## Validate The Chart
 

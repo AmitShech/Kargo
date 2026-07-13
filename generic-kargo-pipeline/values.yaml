@@ -7,6 +7,7 @@ global:
 
 artifact:
   components:
+    # Component name is reserved for future stage logic that maps Freight images into config updates.
     - name: my-app
       image:
         repository: registry.example.com/team/my-app
@@ -20,8 +21,8 @@ artifact:
 chartGit:
   repository:
     url: https://gitlab.example.com/team/my-app-deployment.git
-    username: username
-    password: password
+    username: ""
+    password: ""
   branches:
     source: develop
     production: master
@@ -35,8 +36,8 @@ chartGit:
 developersGit:
   repository:
     url: https://gitlab.example.com/team/my-app.git
-    username: username
-    password: password
+    username: ""
+    password: ""
   configurationPathFile: src/main/resources/values.yaml
 
 environments:
