@@ -23,6 +23,12 @@ chartGit:
     url: https://gitlab.example.com/team/my-app-deployment.git
     username: ""
     password: ""
+  subscription:
+    enabled: true
+    commitSelectionStrategy: NewestFromBranch
+    discoveryLimit: 20
+    includePaths: []
+    excludePaths: []
   branches:
     source: develop
     production: master

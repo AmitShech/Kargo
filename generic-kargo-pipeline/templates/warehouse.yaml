@@ -11,6 +11,23 @@ metadata:
   {{- end }}
 spec:
   subscriptions:
+    {{- if .Values.chartGit.subscription.enabled }}
+    - git:
+        repoURL: {{ .Values.chartGit.repository.url | quote }}
+        branch: {{ .Values.chartGit.branches.source | quote }}
+        commitSelectionStrategy: {{ default "NewestFromBranch" .Values.chartGit.subscription.commitSelectionStrategy | quote }}
+        {{- with .Values.chartGit.subscription.discoveryLimit }}
+        discoveryLimit: {{ . }}
+        {{- end }}
+        {{- with .Values.chartGit.subscription.includePaths }}
+        includePaths:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with .Values.chartGit.subscription.excludePaths }}
+        excludePaths:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+    {{- end }}
     {{- range .Values.artifact.components }}
     - image:
         repoURL: {{ .image.repository | quote }}

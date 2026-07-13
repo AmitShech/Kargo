@@ -76,7 +76,7 @@ Current chart resources:
 
 - Kargo `Project`
 - Kargo `ProjectConfig`
-- Kargo `Warehouse`
+- Kargo `Warehouse` subscribed to chart Git and component images
 - Kubernetes `Secret` resources for Git credentials
 
 Resources intentionally not implemented yet:
@@ -133,6 +133,12 @@ chartGit:
     url: https://gitlab.example.com/team/my-app-deployment.git
     username: username
     password: password
+  subscription:
+    enabled: true
+    commitSelectionStrategy: NewestFromBranch
+    discoveryLimit: 20
+    includePaths: []
+    excludePaths: []
   branches:
     source: develop
     production: master
@@ -151,6 +157,8 @@ developersGit:
 ```
 
 `chartGit` is the deployment/chart configuration repository managed by the promotion pipeline.
+
+`chartGit.subscription` controls the Warehouse Git subscription. It follows `chartGit.branches.source` by default, uses `NewestFromBranch`, and supports optional `includePaths` / `excludePaths` filters for commit discovery.
 
 `developersGit` is the developer-owned repository. `configurationPathFile` is the file that future chart creation logic should copy from the developer repository tag associated with the current Freight.
 
@@ -174,7 +182,7 @@ artifact:
         discoveryLimit: 20
 ```
 
-Warehouse renders one image subscription per component.
+Warehouse renders one Git subscription for `chartGit` and one image subscription per component.
 
 `artifact.components[].name` is reserved for future stage logic that maps Freight images into chart/configuration updates. The current Warehouse template does not emit this name because Kargo image subscriptions do not require it.
 
@@ -310,6 +318,12 @@ Before installing into a real cluster, verify these fields against the installed
 - `Warehouse.spec.subscriptions[].image.allowTags`
 - `Warehouse.spec.subscriptions[].image.semverConstraint`
 - `Warehouse.spec.subscriptions[].image.discoveryLimit`
+- `Warehouse.spec.subscriptions[].git.repoURL`
+- `Warehouse.spec.subscriptions[].git.branch`
+- `Warehouse.spec.subscriptions[].git.commitSelectionStrategy`
+- `Warehouse.spec.subscriptions[].git.discoveryLimit`
+- `Warehouse.spec.subscriptions[].git.includePaths`
+- `Warehouse.spec.subscriptions[].git.excludePaths`
 
 ## User Preferences Captured
 

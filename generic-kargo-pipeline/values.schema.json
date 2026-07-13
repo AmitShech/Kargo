@@ -44,6 +44,36 @@
             }
           }
         },
+        "subscription": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "commitSelectionStrategy": {
+              "type": "string",
+              "minLength": 1
+            },
+            "discoveryLimit": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "includePaths": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "excludePaths": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
         "branches": {
           "type": "object",
           "properties": {

@@ -40,7 +40,7 @@ This initial chart foundation creates:
 
 - A Kargo `Project`.
 - A Kargo `ProjectConfig` with configurable promotion policies for `prepare-release`, `dev`, `integration`, `pre-production`, and `production`.
-- A Kargo `Warehouse` subscribed to one or more component image repositories.
+- A Kargo `Warehouse` subscribed to the chart Git repository and one or more component image repositories.
 - Kubernetes `Secret` resources for chart Git and developer Git credentials.
 - Default values and JSON Schema validation for important artifact, Git, image, and environment settings.
 
@@ -64,6 +64,8 @@ Release branch naming is configured under `chartGit.branches.releaseTemplate`. T
 `chartGit.paths.valuesFile` describes Helm values files inside the deployment configuration repository. `base` points to the shared values file, and `environment` points to the environment-specific values file template. Future promotion steps can update the target environment file while keeping the same Freight image tag, digest, release branch, and commit moving through the pipeline.
 
 `developersGit` describes the developer-owned Git repository used by future chart creation logic. `configurationPathFile` points to the file that should be copied from the developer repository tag associated with the current Freight. This is intentionally separate from `chartGit`, which is the deployment/chart configuration repository managed by this pipeline.
+
+`chartGit.subscription` controls the Warehouse Git subscription for the deployment/chart configuration repository. It follows the configured `chartGit.branches.source` branch by default, can limit discovery with `discoveryLimit`, and can optionally narrow Git commit discovery with `includePaths` and `excludePaths`.
 
 The chart creates Kargo credential `Secret` resources when `chartGit.repository.username/password` or `developersGit.repository.username/password` are provided. Defaults are empty so a basic render does not create placeholder credential Secrets. Rendered Git credential Secrets are labeled with `kargo.akuity.io/cred-type: git` and include `repoURL`, `username`, and `password`.
 
