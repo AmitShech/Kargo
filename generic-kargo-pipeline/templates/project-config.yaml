@@ -1,0 +1,24 @@
+apiVersion: kargo.akuity.io/v1alpha1
+kind: ProjectConfig
+metadata:
+  name: {{ include "generic-kargo-pipeline.projectName" . | quote }}
+  namespace: {{ include "generic-kargo-pipeline.projectName" . | quote }}
+  labels:
+    {{- include "generic-kargo-pipeline.labels" . | nindent 4 }}
+    {{- include "generic-kargo-pipeline.applicationLabels" . | nindent 4 }}
+  {{- with .Values.global.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  promotionPolicies:
+    - stage: prepare-release
+      autoPromotionEnabled: {{ .Values.prepareRelease.autoPromotionEnabled }}
+    - stage: {{ .Values.environments.dev.name | quote }}
+      autoPromotionEnabled: {{ .Values.environments.dev.autoPromotionEnabled }}
+    - stage: {{ .Values.environments.integration.name | quote }}
+      autoPromotionEnabled: {{ .Values.environments.integration.autoPromotionEnabled }}
+    - stage: {{ .Values.environments.preProduction.name | quote }}
+      autoPromotionEnabled: {{ .Values.environments.preProduction.autoPromotionEnabled }}
+    - stage: {{ .Values.environments.production.name | quote }}
+      autoPromotionEnabled: {{ .Values.environments.production.autoPromotionEnabled }}

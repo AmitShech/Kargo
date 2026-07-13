@@ -1,0 +1,6 @@
+apiVersion: v2
+name: generic-kargo-pipeline
+description: A reusable Helm chart for a generic Kargo-based CD promotion pipeline.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

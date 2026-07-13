@@ -1,0 +1,99 @@
+# Default values for the generic Kargo promotion pipeline.
+# Keep application-specific values in an override file instead of editing templates.
+
+global:
+  labels: {}
+  annotations: {}
+
+kargo:
+  project:
+    name: my-app-promotion
+
+application:
+  name: my-app
+
+artifact:
+  image:
+    repository: registry.example.com/team/my-app
+    selectionStrategy: SemVer
+    allowedTags: "^v?[0-9]+\\.[0-9]+\\.[0-9]+$"
+    semverConstraint: "*"
+    discoveryLimit: 20
+
+git:
+  repository:
+    url: https://gitlab.example.com/team/my-app-deployment.git
+  credentialsSecret:
+    name: my-app-git-credentials
+    usernameKey: username
+    passwordKey: password
+  branches:
+    source: develop
+    production: master
+  author:
+    name: Kargo Promotion Bot
+    email: kargo-promotion@example.com
+  paths:
+    valuesFile: "environments/{{ .Environment }}/values.yaml"
+
+release:
+  branchPrefix: release/
+  branchTemplate: "release/{{ .ApplicationName }}-{{ .ImageTag }}"
+
+environments:
+  dev:
+    name: dev
+    namespace: my-app-dev
+    argocd:
+      applicationName: my-app-dev
+      namespace: argocd
+    autoPromotionEnabled: true
+    verification:
+      enabled: true
+  integration:
+    name: integration
+    namespace: my-app-integration
+    argocd:
+      applicationName: my-app-integration
+      namespace: argocd
+    autoPromotionEnabled: true
+    verification:
+      enabled: true
+  preProduction:
+    name: pre-production
+    autoPromotionEnabled: true
+  production:
+    name: production
+    namespace: my-app-production
+    argocd:
+      applicationName: my-app-production
+      namespace: argocd
+    autoPromotionEnabled: false
+    verification:
+      enabled: true
+
+prepareRelease:
+  autoPromotionEnabled: true
+
+qa:
+  enabled: true
+
+integrationVerification:
+  enabled: true
+
+productionVerification:
+  enabled: true
+
+serviceNow:
+  enabled: false
+  credentialsSecret:
+    name: my-app-servicenow-credentials
+    usernameKey: username
+    passwordKey: password
+
+gitLab:
+  mergeRequest:
+    enabled: false
+    credentialsSecret:
+      name: my-app-gitlab-token
+      tokenKey: token

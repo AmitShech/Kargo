@@ -1,0 +1,225 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "generic-kargo-pipeline values",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["kargo", "application", "artifact", "git", "environments"],
+  "properties": {
+    "global": {
+      "type": "object"
+    },
+    "kargo": {
+      "type": "object",
+      "required": ["project"],
+      "properties": {
+        "project": {
+          "type": "object",
+          "required": ["name"],
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "application": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "required": ["image"],
+      "properties": {
+        "image": {
+          "type": "object",
+          "required": ["repository"],
+          "properties": {
+            "repository": {
+              "type": "string",
+              "minLength": 1
+            },
+            "selectionStrategy": {
+              "type": "string",
+              "minLength": 1
+            },
+            "allowedTags": {
+              "type": "string"
+            },
+            "semverConstraint": {
+              "type": "string"
+            },
+            "discoveryLimit": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      }
+    },
+    "git": {
+      "type": "object",
+      "required": ["repository", "credentialsSecret"],
+      "properties": {
+        "repository": {
+          "type": "object",
+          "required": ["url"],
+          "properties": {
+            "url": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "credentialsSecret": {
+          "type": "object",
+          "required": ["name"],
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "usernameKey": {
+              "type": "string",
+              "minLength": 1
+            },
+            "passwordKey": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "branches": {
+          "type": "object",
+          "properties": {
+            "source": {
+              "type": "string",
+              "minLength": 1
+            },
+            "production": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "author": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "email": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "prepareRelease": {
+      "type": "object",
+      "properties": {
+        "autoPromotionEnabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "environments": {
+      "type": "object",
+      "required": ["dev", "integration", "production"],
+      "properties": {
+        "dev": {
+          "$ref": "#/definitions/deployEnvironment"
+        },
+        "integration": {
+          "$ref": "#/definitions/deployEnvironment"
+        },
+        "preProduction": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "autoPromotionEnabled": {
+              "type": "boolean"
+            }
+          }
+        },
+        "production": {
+          "$ref": "#/definitions/deployEnvironment"
+        }
+      }
+    },
+    "qa": {
+      "$ref": "#/definitions/featureToggle"
+    },
+    "integrationVerification": {
+      "$ref": "#/definitions/featureToggle"
+    },
+    "productionVerification": {
+      "$ref": "#/definitions/featureToggle"
+    },
+    "serviceNow": {
+      "$ref": "#/definitions/featureToggle"
+    },
+    "gitLab": {
+      "type": "object",
+      "properties": {
+        "mergeRequest": {
+          "$ref": "#/definitions/featureToggle"
+        }
+      }
+    }
+  },
+  "definitions": {
+    "deployEnvironment": {
+      "type": "object",
+      "required": ["argocd"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "namespace": {
+          "type": "string",
+          "minLength": 1
+        },
+        "autoPromotionEnabled": {
+          "type": "boolean"
+        },
+        "argocd": {
+          "type": "object",
+          "required": ["applicationName"],
+          "properties": {
+            "applicationName": {
+              "type": "string",
+              "minLength": 1
+            },
+            "namespace": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "verification": {
+          "$ref": "#/definitions/featureToggle"
+        }
+      }
+    },
+    "featureToggle": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

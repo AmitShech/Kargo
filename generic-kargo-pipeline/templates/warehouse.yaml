@@ -1,0 +1,20 @@
+apiVersion: kargo.akuity.io/v1alpha1
+kind: Warehouse
+metadata:
+  name: {{ include "generic-kargo-pipeline.fullname" . | quote }}
+  namespace: {{ include "generic-kargo-pipeline.projectName" . | quote }}
+  labels:
+    {{- include "generic-kargo-pipeline.labels" . | nindent 4 }}
+    {{- include "generic-kargo-pipeline.applicationLabels" . | nindent 4 }}
+  {{- with .Values.global.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  subscriptions:
+    - image:
+        repoURL: {{ .Values.artifact.image.repository | quote }}
+        imageSelectionStrategy: {{ .Values.artifact.image.selectionStrategy | quote }}
+        allowTags: {{ .Values.artifact.image.allowedTags | quote }}
+        semverConstraint: {{ .Values.artifact.image.semverConstraint | quote }}
+        discoveryLimit: {{ .Values.artifact.image.discoveryLimit }}
