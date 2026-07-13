@@ -92,17 +92,18 @@ Resources intentionally not implemented yet:
 
 ```text
 generic-kargo-pipeline/
-├── Chart.yaml
-├── README.md
-├── values.schema.json
-├── values.yaml
-└── templates/
-    ├── _helpers.tpl
-    ├── chart-git-secret.yaml
-    ├── developers-git-secret.yaml
-    ├── project-config.yaml
-    ├── project.yaml
-    └── warehouse.yaml
+|-- Chart.yaml
+|-- README.md
+|-- values.schema.json
+|-- values.yaml
+`-- templates/
+    |-- _helpers.tpl
+    |-- project-config.yaml
+    |-- project.yaml
+    |-- warehouse.yaml
+    `-- secrets/
+        |-- chart-git-secret.yaml
+        `-- developers-git-secret.yaml
 ```
 
 ## Naming Decisions
@@ -128,6 +129,11 @@ Explicit `metadata.namespace` fields were removed from templates. Namespaced res
 The chart currently separates Git configuration by job:
 
 ```yaml
+warehouse:
+  name: app-images
+  interval: 10m
+  freightCreationPolicy: Automatic
+
 chartGit:
   repository:
     url: https://gitlab.example.com/team/my-app-deployment.git
@@ -159,6 +165,8 @@ developersGit:
 `chartGit` is the deployment/chart configuration repository managed by the promotion pipeline.
 
 `chartGit.subscription` controls the Warehouse Git subscription. It follows `chartGit.branches.source` by default, uses `NewestFromBranch`, and supports optional `includePaths` / `excludePaths` filters for commit discovery.
+
+`warehouse` controls the Kargo Warehouse resource name and polling behavior. The default name is `app-images`, the default interval is `10m`, and the default Freight creation policy is `Automatic`.
 
 `developersGit` is the developer-owned repository. `configurationPathFile` is the file that future chart creation logic should copy from the developer repository tag associated with the current Freight.
 
@@ -318,6 +326,8 @@ Before installing into a real cluster, verify these fields against the installed
 - `Warehouse.spec.subscriptions[].image.allowTags`
 - `Warehouse.spec.subscriptions[].image.semverConstraint`
 - `Warehouse.spec.subscriptions[].image.discoveryLimit`
+- `Warehouse.spec.interval`
+- `Warehouse.spec.freightCreationPolicy`
 - `Warehouse.spec.subscriptions[].git.repoURL`
 - `Warehouse.spec.subscriptions[].git.branch`
 - `Warehouse.spec.subscriptions[].git.commitSelectionStrategy`

@@ -8,6 +8,23 @@
     "global": {
       "type": "object"
     },
+    "warehouse": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "interval": {
+          "type": "string",
+          "minLength": 1
+        },
+        "freightCreationPolicy": {
+          "type": "string",
+          "enum": ["Automatic", "Manual"]
+        }
+      }
+    },
     "kargo": {
       "type": "object"
     },

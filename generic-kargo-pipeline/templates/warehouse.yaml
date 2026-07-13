@@ -1,7 +1,7 @@
 apiVersion: kargo.akuity.io/v1alpha1
 kind: Warehouse
 metadata:
-  name: {{ include "generic-kargo-pipeline.fullname" . | quote }}
+  name: {{ include "generic-kargo-pipeline.normalizeName" .Values.warehouse.name | quote }}
   labels:
     {{- include "generic-kargo-pipeline.labels" . | nindent 4 }}
     {{- include "generic-kargo-pipeline.applicationLabels" . | nindent 4 }}
@@ -10,8 +10,10 @@ metadata:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
+  interval: {{ .Values.warehouse.interval | quote }}
+  freightCreationPolicy: {{ .Values.warehouse.freightCreationPolicy | quote }}
   subscriptions:
-    {{- if .Values.chartGit.subscription.enabled }}
+      {{- if .Values.chartGit.subscription.enabled }}
     - git:
         repoURL: {{ .Values.chartGit.repository.url | quote }}
         branch: {{ .Values.chartGit.branches.source | quote }}
@@ -27,8 +29,8 @@ spec:
         excludePaths:
           {{- toYaml . | nindent 10 }}
         {{- end }}
-    {{- end }}
-    {{- range .Values.artifact.components }}
+      {{- end }}
+      {{- range .Values.artifact.components }}
     - image:
         repoURL: {{ .image.repository | quote }}
         imageSelectionStrategy: {{ default "NewestBuild" .image.selectionStrategy | quote }}
@@ -41,4 +43,4 @@ spec:
         {{- with .image.discoveryLimit }}
         discoveryLimit: {{ . }}
         {{- end }}
-    {{- end }}
+      {{- end }}

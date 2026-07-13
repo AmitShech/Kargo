@@ -5,6 +5,11 @@ global:
   labels: {}
   annotations: {}
 
+warehouse:
+  name: app-images
+  interval: 10m
+  freightCreationPolicy: Automatic
+
 artifact:
   components:
     # Component name is reserved for future stage logic that maps Freight images into config updates.
@@ -26,9 +31,10 @@ chartGit:
   subscription:
     enabled: true
     commitSelectionStrategy: NewestFromBranch
-    discoveryLimit: 20
+    discoveryLimit: 15
     includePaths: []
-    excludePaths: []
+    excludePaths:
+      - kargo
   branches:
     source: develop
     production: master
