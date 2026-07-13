@@ -65,7 +65,7 @@ Release branch naming is configured under `chartGit.branches.releaseTemplate`. T
 
 `developersGit` describes the developer-owned Git repository used by future chart creation logic. `configurationPathFile` points to the file that should be copied from the developer repository tag associated with the current Freight. This is intentionally separate from `chartGit`, which is the deployment/chart configuration repository managed by this pipeline.
 
-The chart creates Kubernetes `Secret` resources when `chartGit.repository.username/password` or `developersGit.repository.username/password` are provided. Defaults are empty so a basic render does not create placeholder credential Secrets.
+The chart creates Kargo credential `Secret` resources when `chartGit.repository.username/password` or `developersGit.repository.username/password` are provided. Defaults are empty so a basic render does not create placeholder credential Secrets. Rendered Git credential Secrets are labeled with `kargo.akuity.io/cred-type: git` and include `repoURL`, `username`, and `password`.
 
 ## Validate The Chart
 
