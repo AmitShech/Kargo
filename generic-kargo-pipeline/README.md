@@ -58,6 +58,8 @@ Later chart iterations are expected to add:
 
 Environment cleanup and undeploy behavior are intentionally not included yet.
 
+Release branch naming is configured under `git.branches.releaseTemplate`. The default shape is `release/{{ .ImageTag }}/{{ .Commit }}`; future promotion logic will fill those values from the current Freight.
+
 ## Validate The Chart
 
 Run Helm lint:

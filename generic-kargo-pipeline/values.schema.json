@@ -76,6 +76,10 @@
             "production": {
               "type": "string",
               "minLength": 1
+            },
+            "releaseTemplate": {
+              "type": "string",
+              "minLength": 1
             }
           }
         },
