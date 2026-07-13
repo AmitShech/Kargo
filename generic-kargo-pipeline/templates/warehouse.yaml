@@ -1,3 +1,11 @@
+{{- $componentNames := dict -}}
+{{- range .Values.sources.components }}
+{{- $componentName := include "generic-kargo-pipeline.normalizeName" .name -}}
+{{- if hasKey $componentNames $componentName }}
+{{- fail (printf "sources.components contains duplicate component name %q after Kubernetes name normalization" .name) }}
+{{- end }}
+{{- $_ := set $componentNames $componentName true -}}
+{{- end }}
 apiVersion: kargo.akuity.io/v1alpha1
 kind: Warehouse
 metadata:
@@ -13,24 +21,24 @@ spec:
   interval: {{ .Values.warehouse.interval | quote }}
   freightCreationPolicy: {{ .Values.warehouse.freightCreationPolicy | quote }}
   subscriptions:
-      {{- if .Values.chartGit.subscription.enabled }}
+    {{- if .Values.sources.deploymentGit.subscription.enabled }}
     - git:
-        repoURL: {{ .Values.chartGit.repository.url | quote }}
-        branch: {{ .Values.chartGit.branches.source | quote }}
-        commitSelectionStrategy: {{ default "NewestFromBranch" .Values.chartGit.subscription.commitSelectionStrategy | quote }}
-        {{- with .Values.chartGit.subscription.discoveryLimit }}
+        repoURL: {{ .Values.sources.deploymentGit.repository.url | quote }}
+        branch: {{ .Values.sources.deploymentGit.subscription.branch | quote }}
+        commitSelectionStrategy: {{ default "NewestFromBranch" .Values.sources.deploymentGit.subscription.commitSelectionStrategy | quote }}
+        {{- with .Values.sources.deploymentGit.subscription.discoveryLimit }}
         discoveryLimit: {{ . }}
         {{- end }}
-        {{- with .Values.chartGit.subscription.includePaths }}
+        {{- with .Values.sources.deploymentGit.subscription.includePaths }}
         includePaths:
           {{- toYaml . | nindent 10 }}
         {{- end }}
-        {{- with .Values.chartGit.subscription.excludePaths }}
+        {{- with .Values.sources.deploymentGit.subscription.excludePaths }}
         excludePaths:
           {{- toYaml . | nindent 10 }}
         {{- end }}
-      {{- end }}
-      {{- range .Values.artifact.components }}
+    {{- end }}
+    {{- range .Values.sources.components }}
     - image:
         repoURL: {{ .image.repository | quote }}
         imageSelectionStrategy: {{ default "NewestBuild" .image.selectionStrategy | quote }}
@@ -43,4 +51,4 @@ spec:
         {{- with .image.discoveryLimit }}
         discoveryLimit: {{ . }}
         {{- end }}
-      {{- end }}
+    {{- end }}

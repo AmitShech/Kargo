@@ -2,16 +2,52 @@
 
 This repository contains a reusable Helm chart for a generic Kargo-based CD promotion pipeline. The chart is intended for deployment and promotion ownership only; application build and development stay outside this project.
 
+Repository:
+
+```text
+https://github.com/AmitShech/Kargo.git
+```
+
+Chart path:
+
+```text
+generic-kargo-pipeline/
+```
+
 ## Project Goal
 
-The pipeline starts when a new application image tag is published. Kargo should prepare deployment configuration, promote the same immutable release candidate through Dev and Integration, run native Kargo verification after each deployment, prepare the production change, and wait for a user to manually trigger Production.
+The pipeline starts when a release source changes. Kargo should prepare deployment configuration, promote the same immutable release candidate through Dev and Integration, run native Kargo verification after each deployment, prepare the production change, and wait for a user to manually trigger Production.
+
+Release sources are:
+
+- new component image tags
+- relevant deployment Git configuration changes
 
 The key technologies are Kargo, Argo CD, GitLab, Helm, Kubernetes/OpenShift, n8n, and ServiceNow.
+
+## Current Scope
+
+The chart currently creates only:
+
+- Kargo `Project`
+- Kargo `ProjectConfig`
+- Kargo `Warehouse`
+- Kubernetes Git credential `Secret` resources
+
+Do not add these until explicitly requested:
+
+- Kargo `Stage` resources
+- Kargo verification resources or `AnalysisTemplate` resources
+- native Kargo `spec.verification`
+- Argo CD deployment promotion steps
+- ServiceNow API integration
+- GitLab merge request API integration
+- cleanup or undeploy logic
 
 ## Intended Flow
 
 ```text
-Warehouse detects a new image tag
+Warehouse detects a release source
         |
         v
 prepare-release
@@ -38,7 +74,7 @@ production
   run production smoke verification
 ```
 
-There is no environment cleanup or undeploy step yet. Do not add cleanup unless explicitly requested.
+There is no environment cleanup or undeploy step yet.
 
 ## Architecture Rules
 
@@ -56,37 +92,8 @@ There is no environment cleanup or undeploy step yet. Do not add cleanup unless 
 - Preserve image tag, image digest, release branch, release commit, and Helm/configuration revision.
 - Environment-specific values may change, but the application artifact must not be rebuilt or replaced between environments.
 - The chart must stay generic. Application-specific settings belong in `values.yaml`, not hard-coded templates.
-- Templates should use helpers for names and labels where practical.
-
-## Repository And Chart
-
-The GitHub repository is:
-
-```text
-https://github.com/AmitShech/Kargo.git
-```
-
-The Helm chart is in:
-
-```text
-generic-kargo-pipeline/
-```
-
-Current chart resources:
-
-- Kargo `Project`
-- Kargo `ProjectConfig`
-- Kargo `Warehouse` subscribed to chart Git and component images
-- Kubernetes `Secret` resources for Git credentials
-
-Resources intentionally not implemented yet:
-
-- Kargo `Stage` resources
-- Kargo verification resources / AnalysisTemplates
-- Argo CD deployment promotion steps
-- ServiceNow API integration
-- GitLab merge request API integration
-- Cleanup / undeploy
+- Credentials remain in values because the user explicitly does not require additional credential-protection logic.
+- Git credential Secrets render only when both username and password are non-empty.
 
 ## Current File Layout
 
@@ -114,169 +121,222 @@ The Kargo Project name is set directly from the Helm release namespace:
 {{ .Release.Namespace }}
 ```
 
-The user specifically asked that `Project.metadata.name` should not use:
-
-```gotemplate
-{{ include "generic-kargo-pipeline.projectName" . }}
-```
-
-The helper `generic-kargo-pipeline.projectName` still exists and currently normalizes `.Release.Namespace` for labels and related resource names. Project resource metadata name itself should remain direct `.Release.Namespace` unless the user changes this decision.
+Do not replace it with the helper. The helper `generic-kargo-pipeline.projectName` may still be used for labels and related resource names.
 
 Explicit `metadata.namespace` fields were removed from templates. Namespaced resources should be installed into the Helm release namespace naturally.
 
-## Values Hierarchy
+## Values Model
 
-The chart currently separates Git configuration by job:
+The chart uses these top-level sections:
+
+```yaml
+global:
+  labels: {}
+  annotations: {}
+
+warehouse:
+  name: app-images
+  interval: 10m
+  freightCreationPolicy: Automatic
+
+sources:
+  components: []
+  deploymentGit: {}
+
+pipeline:
+  stages: {}
+
+integrations: {}
+```
+
+Previous top-level source, stage, and verification sections were consolidated into this model.
+
+## Source Model
+
+`sources.components` supports multiple components. Each component has:
+
+- required unique `name`
+- one image repository
+- one developer-owned Git repository
+- one developer configuration file path
+- one values mapping for future deployment values updates
+
+Example:
+
+```yaml
+sources:
+  components:
+    - name: api
+      image:
+        repository: registry.example.com/team/my-app-api
+        selectionStrategy: NewestBuild
+        allowedTags: ""
+        semverConstraint: ""
+        discoveryLimit: 20
+      git:
+        repository:
+          url: https://gitlab.example.com/team/my-app-api.git
+          username: ""
+          password: ""
+        configuration:
+          path: src/main/resources/values.yaml
+      valuesMapping:
+        repositoryKey: components.api.image.repository
+        tagKey: components.api.image.tag
+        digestKey: components.api.image.digest
+```
+
+The component image tag and developer Git tag are always identical. Do not add a configurable tag-mapping strategy unless the user changes this decision.
+
+`valuesMapping` is not used by the current Warehouse. It is reserved for the future `prepare-release` Stage, which will map Freight image repository, tag, and digest into deployment Helm values.
+
+## Deployment Git
+
+`sources.deploymentGit` is the deployment/chart configuration repository managed by the promotion pipeline.
+
+```yaml
+sources:
+  deploymentGit:
+    repository:
+      url: https://gitlab.example.com/team/my-app-deployment.git
+      username: ""
+      password: ""
+    subscription:
+      enabled: true
+      branch: develop
+      commitSelectionStrategy: NewestFromBranch
+      discoveryLimit: 15
+      includePaths:
+        - values.yaml
+        - values/**
+      excludePaths:
+        - kargo/**
+        - release-metadata/**
+    branches:
+      source: develop
+      production: master
+    paths:
+      valuesFiles:
+        base: values.yaml
+        environment: values/${{ vars.environment }}.yaml
+```
+
+The Warehouse subscription branch is `sources.deploymentGit.subscription.branch`. Do not derive it implicitly from `branches.source`.
+
+Deployment Git remains subscribed because configuration-only releases can create Freight. Only paths matching `includePaths` should count as configuration changes. Pipeline-generated paths should be excluded to avoid recursive Freight creation.
+
+## Pipeline Model
+
+Promotion configuration is under `pipeline.stages`.
+
+```yaml
+pipeline:
+  stages:
+    prepareRelease:
+      name: prepare-release
+      autoPromotionEnabled: true
+      releaseBranch: release/${{ imageFrom(vars.imageRepository).Tag }}
+    dev:
+      name: dev
+      autoPromotionEnabled: true
+      deployment: {}
+      verification: {}
+    integration:
+      name: integration
+      autoPromotionEnabled: true
+      deployment: {}
+      verification: {}
+    preProduction:
+      name: pre-production
+      autoPromotionEnabled: true
+    production:
+      name: production
+      autoPromotionEnabled: false
+      deployment: {}
+      verification: {}
+```
+
+`prepareRelease.releaseBranch` is a literal Kargo expression for future Stage logic. Helm must not evaluate it. The branch name no longer includes commit.
+
+Deployment stages have:
+
+```yaml
+deployment:
+  namespace: my-app-dev
+  argocd:
+    applicationName: my-app-dev
+    namespace: argocd
+```
+
+Verification settings live only under deployment stages and are placeholders for future resources.
+
+## Integrations
+
+Future integrations are grouped under:
+
+```yaml
+integrations:
+  serviceNow:
+    enabled: false
+    credentials:
+      username: ""
+      password: ""
+  gitLab:
+    mergeRequest:
+      enabled: false
+      credentials:
+        token: ""
+```
+
+No integration Secrets or API calls are implemented yet.
+
+## Secrets
+
+Secret templates:
+
+- `templates/secrets/chart-git-secret.yaml`
+- `templates/secrets/developers-git-secret.yaml`
+
+Deployment Git credentials come from `sources.deploymentGit.repository`.
+
+Component developer Git credentials come from `sources.components[].git.repository`. The component Secret name includes the normalized component name, for example:
+
+```text
+<release>-api-developer-git
+<release>-worker-developer-git
+```
+
+The chart assumes each component has a separate developer repository. Shared developer repositories may render one Secret per component if both components provide credentials.
+
+## Warehouse Behavior
+
+The Warehouse renders:
+
+- one deployment Git subscription when `sources.deploymentGit.subscription.enabled` is true
+- one image subscription per `sources.components[]`
+
+Component names are not rendered inside Warehouse image subscriptions because Kargo image subscriptions do not need them.
+
+Current default Warehouse values:
 
 ```yaml
 warehouse:
   name: app-images
   interval: 10m
   freightCreationPolicy: Automatic
-
-chartGit:
-  repository:
-    url: https://gitlab.example.com/team/my-app-deployment.git
-    username: username
-    password: password
-  subscription:
-    enabled: true
-    commitSelectionStrategy: NewestFromBranch
-    discoveryLimit: 20
-    includePaths: []
-    excludePaths: []
-  branches:
-    source: develop
-    production: master
-    releaseTemplate: "release/{{ .ImageTag }}/{{ .Commit }}"
-  paths:
-    valuesFile:
-      base: values.yaml
-      environment: "values/{{ .Environment }}.yaml"
-
-developersGit:
-  repository:
-    url: https://gitlab.example.com/team/my-app.git
-    username: username
-    password: password
-  configurationPathFile: src/main/resources/values.yaml
 ```
-
-`chartGit` is the deployment/chart configuration repository managed by the promotion pipeline.
-
-`chartGit.subscription` controls the Warehouse Git subscription. It follows `chartGit.branches.source` by default, uses `NewestFromBranch`, and supports optional `includePaths` / `excludePaths` filters for commit discovery.
-
-`warehouse` controls the Kargo Warehouse resource name and polling behavior. The default name is `app-images`, the default interval is `10m`, and the default Freight creation policy is `Automatic`.
-
-`developersGit` is the developer-owned repository. `configurationPathFile` is the file that future chart creation logic should copy from the developer repository tag associated with the current Freight.
-
-The user wanted credentials merged into the repository details instead of a separate `credentialsSecret` value. The chart creates Kubernetes `Secret` resources from these repository username/password fields.
-
-Important safety note: current defaults leave repository usernames and passwords empty so placeholder credential Secrets are not rendered. Do not commit real credentials in values files.
-
-## Artifact Model
-
-Artifacts support multiple components:
-
-```yaml
-artifact:
-  components:
-    - name: my-app
-      image:
-        repository: registry.example.com/team/my-app
-        selectionStrategy: NewestBuild
-        allowedTags: ""
-        semverConstraint: ""
-        discoveryLimit: 20
-```
-
-Warehouse renders one Git subscription for `chartGit` and one image subscription per component.
-
-`artifact.components[].name` is reserved for future stage logic that maps Freight images into chart/configuration updates. The current Warehouse template does not emit this name because Kargo image subscriptions do not require it.
-
-Default selection strategy is `NewestBuild`.
-
-`allowedTags` and `semverConstraint` are optional and omitted from the rendered Warehouse when empty.
-
-## Environment Model
-
-Configured environments:
-
-- `dev`
-- `integration`
-- `preProduction`
-- `production`
-
-Promotion policy defaults:
-
-- `prepare-release`: automatic
-- `dev`: automatic
-- `integration`: automatic
-- `pre-production`: automatic
-- `production`: manual (`autoPromotionEnabled: false`)
-
-Each deployment environment contains an Argo CD Application name, Argo CD namespace, deployment namespace, auto-promotion setting, and verification enablement.
-
-## Git Branching Model
-
-Release branch naming is under:
-
-```yaml
-chartGit:
-  branches:
-    releaseTemplate: "release/{{ .ImageTag }}/{{ .Commit }}"
-```
-
-The image tag and commit will be populated later from the current Freight.
-
-The source and production branches are:
-
-```yaml
-chartGit:
-  branches:
-    source: develop
-    production: master
-```
-
-## Secrets
-
-`templates/chart-git-secret.yaml` and `templates/developers-git-secret.yaml` create Kargo credential `Secret` resources when username and password values are present:
-
-- chart Git credentials
-- developers Git credentials
-
-The Secret names are generated by helpers:
-
-- `generic-kargo-pipeline.chartGitSecretName`
-- `generic-kargo-pipeline.developersGitSecretName`
-
-Secrets render only when both username and password are supplied. They are labeled with `kargo.akuity.io/cred-type: git` and use `stringData.repoURL`, `stringData.username`, and `stringData.password`.
 
 ## Validation Workflow
 
-Helm is available at:
+Run:
 
-```text
-C:\Users\taik0704\AppData\Local\helm.exe
+```sh
+helm lint ./generic-kargo-pipeline
+helm template my-app-promotion ./generic-kargo-pipeline --namespace my-app-promotion
+git status
 ```
 
-Run lint:
-
-```powershell
-& 'C:\Users\taik0704\AppData\Local\helm.exe' lint .\generic-kargo-pipeline --namespace my-app-promotion
-```
-
-Run template:
-
-```powershell
-& 'C:\Users\taik0704\AppData\Local\helm.exe' template my-app-promotion .\generic-kargo-pipeline --namespace my-app-promotion
-```
-
-Also parse the schema:
-
-```powershell
-Get-Content .\generic-kargo-pipeline\values.schema.json -Raw | ConvertFrom-Json | Out-Null
-```
+Also validate `values.schema.json` as JSON before committing.
 
 Known benign Helm lint output:
 
@@ -284,48 +344,12 @@ Known benign Helm lint output:
 [INFO] Chart.yaml: icon is recommended
 ```
 
-## Git Workflow
-
-Git is available at:
-
-```text
-C:\Users\taik0704\AppData\Local\Programs\Git\cmd\git.exe
-```
-
-The repository is on `main` and pushes to:
-
-```text
-origin https://github.com/AmitShech/Kargo.git
-```
-
-After changes, run status, validate Helm, commit, and push.
-
-Use focused commit messages. Prior commits include:
-
-- `Add generic Kargo pipeline Helm chart foundation`
-- `Fix Helm resource name normalization`
-- `Support multiple artifact images in Warehouse`
-- `Derive Kargo project name from release namespace`
-- `Move release branch template under git branches`
-- `Remove git author config and document paths`
-- `Split values file paths into base and environment`
-- `Add developer configuration Git source`
-- `Move developer configuration outside deployment git`
-- `Add Git credential secrets and split Git config`
-- `Set Kargo Project name from release namespace`
-- `Remove explicit metadata namespaces`
-
 ## Open Kargo API Fields To Verify Later
 
 Before installing into a real cluster, verify these fields against the installed Kargo version:
 
 - `ProjectConfig.spec.promotionPolicies[].stage`
 - `ProjectConfig.spec.promotionPolicies[].autoPromotionEnabled`
-- `Warehouse.spec.subscriptions[].image.repoURL`
-- `Warehouse.spec.subscriptions[].image.imageSelectionStrategy`
-- `Warehouse.spec.subscriptions[].image.allowTags`
-- `Warehouse.spec.subscriptions[].image.semverConstraint`
-- `Warehouse.spec.subscriptions[].image.discoveryLimit`
 - `Warehouse.spec.interval`
 - `Warehouse.spec.freightCreationPolicy`
 - `Warehouse.spec.subscriptions[].git.repoURL`
@@ -334,13 +358,19 @@ Before installing into a real cluster, verify these fields against the installed
 - `Warehouse.spec.subscriptions[].git.discoveryLimit`
 - `Warehouse.spec.subscriptions[].git.includePaths`
 - `Warehouse.spec.subscriptions[].git.excludePaths`
+- `Warehouse.spec.subscriptions[].image.repoURL`
+- `Warehouse.spec.subscriptions[].image.imageSelectionStrategy`
+- `Warehouse.spec.subscriptions[].image.allowTags`
+- `Warehouse.spec.subscriptions[].image.semverConstraint`
+- `Warehouse.spec.subscriptions[].image.discoveryLimit`
 
 ## User Preferences Captured
 
 - Keep the chart generic.
 - Prefer values-driven configuration over hard-coded application settings.
-- Keep deployment Git (`chartGit`) and developer Git (`developersGit`) separate because they have different jobs.
-- `configurationPathFile` means the developer repo file that will be copied later during chart creation.
+- Use `sources.deploymentGit` for deployment/chart configuration Git.
+- Use `sources.components` for component image and developer Git sources.
+- Component image tag equals component developer Git tag.
 - Do not add cleanup yet.
 - Do not add Stages or verification templates until explicitly requested.
 - Commit and push completed changes after validation when asked to implement.

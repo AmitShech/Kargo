@@ -29,17 +29,19 @@ Return the Kargo Project name. The project is bound to the Helm release namespac
 {{- end -}}
 
 {{/*
-Secret containing credentials for the deployment chart/configuration Git repository.
+Secret containing credentials for the deployment configuration Git repository.
 */}}
-{{- define "generic-kargo-pipeline.chartGitSecretName" -}}
-{{- include "generic-kargo-pipeline.normalizeName" (printf "%s-chart-git" (include "generic-kargo-pipeline.fullname" .)) -}}
+{{- define "generic-kargo-pipeline.deploymentGitSecretName" -}}
+{{- include "generic-kargo-pipeline.normalizeName" (printf "%s-deployment-git" (include "generic-kargo-pipeline.fullname" .)) -}}
 {{- end -}}
 
 {{/*
-Secret containing credentials for the developer-owned Git repository.
+Secret containing credentials for a component developer-owned Git repository.
 */}}
-{{- define "generic-kargo-pipeline.developersGitSecretName" -}}
-{{- include "generic-kargo-pipeline.normalizeName" (printf "%s-developers-git" (include "generic-kargo-pipeline.fullname" .)) -}}
+{{- define "generic-kargo-pipeline.componentDeveloperGitSecretName" -}}
+{{- $root := .root -}}
+{{- $component := .component -}}
+{{- include "generic-kargo-pipeline.normalizeName" (printf "%s-%s-developer-git" (include "generic-kargo-pipeline.fullname" $root) $component.name) -}}
 {{- end -}}
 
 {{/*
@@ -53,6 +55,9 @@ Normalize arbitrary input into a Kubernetes resource name.
 Common chart labels.
 */}}
 {{- define "generic-kargo-pipeline.labels" -}}
+{{- with .Values.global.labels }}
+{{- toYaml . }}
+{{- end }}
 helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | quote }}
 app.kubernetes.io/name: {{ include "generic-kargo-pipeline.name" . | quote }}
 app.kubernetes.io/instance: {{ .Release.Name | quote }}
@@ -60,9 +65,6 @@ app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
 app.kubernetes.io/part-of: {{ include "generic-kargo-pipeline.name" . | quote }}
 {{- with .Chart.AppVersion }}
 app.kubernetes.io/version: {{ . | quote }}
-{{- end }}
-{{ with .Values.global.labels }}
-{{- toYaml . }}
 {{- end }}
 {{- end -}}
 

@@ -10,102 +10,142 @@ warehouse:
   interval: 10m
   freightCreationPolicy: Automatic
 
-artifact:
+sources:
   components:
-    # Component name is reserved for future stage logic that maps Freight images into config updates.
-    - name: my-app
+    - name: api
       image:
-        repository: registry.example.com/team/my-app
+        repository: registry.example.com/team/my-app-api
         selectionStrategy: NewestBuild
         # Optional. Set to a regular expression to restrict eligible tags.
         allowedTags: ""
         # Optional. Used only when the selected image strategy requires a SemVer constraint.
         semverConstraint: ""
         discoveryLimit: 20
+      git:
+        repository:
+          url: https://gitlab.example.com/team/my-app-api.git
+          username: ""
+          password: ""
+        configuration:
+          path: src/main/resources/values.yaml
+      valuesMapping:
+        repositoryKey: components.api.image.repository
+        tagKey: components.api.image.tag
+        digestKey: components.api.image.digest
 
-chartGit:
-  repository:
-    url: https://gitlab.example.com/team/my-app-deployment.git
-    username: ""
-    password: ""
-  subscription:
-    enabled: true
-    commitSelectionStrategy: NewestFromBranch
-    discoveryLimit: 15
-    includePaths: []
-    excludePaths:
-      - kargo
-  branches:
-    source: develop
-    production: master
-    # Future promotion logic will populate these values from the current Freight.
-    releaseTemplate: "release/{{ .ImageTag }}/{{ .Commit }}"
-  paths:
-    valuesFile:
-      base: values.yaml
-      environment: "values/{{ .Environment }}.yaml"
+    - name: worker
+      image:
+        repository: registry.example.com/team/my-app-worker
+        selectionStrategy: NewestBuild
+        allowedTags: ""
+        semverConstraint: ""
+        discoveryLimit: 20
+      git:
+        repository:
+          url: https://gitlab.example.com/team/my-app-worker.git
+          username: ""
+          password: ""
+        configuration:
+          path: src/main/resources/values.yaml
+      valuesMapping:
+        repositoryKey: components.worker.image.repository
+        tagKey: components.worker.image.tag
+        digestKey: components.worker.image.digest
 
-developersGit:
-  repository:
-    url: https://gitlab.example.com/team/my-app.git
-    username: ""
-    password: ""
-  configurationPathFile: src/main/resources/values.yaml
+  deploymentGit:
+    repository:
+      url: https://gitlab.example.com/team/my-app-deployment.git
+      username: ""
+      password: ""
 
-environments:
-  dev:
-    name: dev
-    namespace: my-app-dev
-    argocd:
-      applicationName: my-app-dev
-      namespace: argocd
-    autoPromotionEnabled: true
-    verification:
+    subscription:
       enabled: true
-  integration:
-    name: integration
-    namespace: my-app-integration
-    argocd:
-      applicationName: my-app-integration
-      namespace: argocd
-    autoPromotionEnabled: true
-    verification:
-      enabled: true
-  preProduction:
-    name: pre-production
-    autoPromotionEnabled: true
-  production:
-    name: production
-    namespace: my-app-production
-    argocd:
-      applicationName: my-app-production
-      namespace: argocd
-    autoPromotionEnabled: false
-    verification:
-      enabled: true
+      branch: develop
+      commitSelectionStrategy: NewestFromBranch
+      discoveryLimit: 15
+      includePaths:
+        - values.yaml
+        - values/**
+      excludePaths:
+        - kargo/**
+        - release-metadata/**
 
-prepareRelease:
-  autoPromotionEnabled: true
+    branches:
+      source: develop
+      production: master
 
-qa:
-  enabled: true
+    paths:
+      valuesFiles:
+        base: values.yaml
+        environment: values/${{ vars.environment }}.yaml
 
-integrationVerification:
-  enabled: true
+pipeline:
+  stages:
+    prepareRelease:
+      name: prepare-release
+      autoPromotionEnabled: true
+      releaseBranch: release/${{ imageFrom(vars.imageRepository).Tag }}
 
-productionVerification:
-  enabled: true
+    dev:
+      name: dev
+      autoPromotionEnabled: true
+      deployment:
+        namespace: my-app-dev
+        argocd:
+          applicationName: my-app-dev
+          namespace: argocd
+      verification:
+        enabled: true
+        templateName: my-app-dev-qa
+        timeout: 30m
+        job:
+          image:
+            repository: registry.example.com/team/my-app-qa
+            tag: latest
 
-serviceNow:
-  enabled: false
-  credentialsSecret:
-    name: my-app-servicenow-credentials
-    usernameKey: username
-    passwordKey: password
+    integration:
+      name: integration
+      autoPromotionEnabled: true
+      deployment:
+        namespace: my-app-integration
+        argocd:
+          applicationName: my-app-integration
+          namespace: argocd
+      verification:
+        enabled: true
+        templateName: my-app-integration-verification
+        timeout: 45m
+        job:
+          image:
+            repository: registry.example.com/team/my-app-integration-tests
+            tag: latest
 
-gitLab:
-  mergeRequest:
+    preProduction:
+      name: pre-production
+      autoPromotionEnabled: true
+
+    production:
+      name: production
+      autoPromotionEnabled: false
+      deployment:
+        namespace: my-app-production
+        argocd:
+          applicationName: my-app-production
+          namespace: argocd
+      verification:
+        enabled: true
+        templateName: my-app-production-smoke
+        timeout: 10m
+
+integrations:
+  serviceNow:
     enabled: false
-    credentialsSecret:
-      name: my-app-gitlab-token
-      tokenKey: token
+    credentials:
+      username: ""
+      password: ""
+
+  gitLab:
+    mergeRequest:
+      enabled: false
+      credentials:
+        token: ""

@@ -11,13 +11,13 @@ metadata:
   {{- end }}
 spec:
   promotionPolicies:
-    - stage: prepare-release
-      autoPromotionEnabled: {{ .Values.prepareRelease.autoPromotionEnabled }}
-    - stage: {{ .Values.environments.dev.name | quote }}
-      autoPromotionEnabled: {{ .Values.environments.dev.autoPromotionEnabled }}
-    - stage: {{ .Values.environments.integration.name | quote }}
-      autoPromotionEnabled: {{ .Values.environments.integration.autoPromotionEnabled }}
-    - stage: {{ .Values.environments.preProduction.name | quote }}
-      autoPromotionEnabled: {{ .Values.environments.preProduction.autoPromotionEnabled }}
-    - stage: {{ .Values.environments.production.name | quote }}
-      autoPromotionEnabled: {{ .Values.environments.production.autoPromotionEnabled }}
+    - stage: {{ .Values.pipeline.stages.prepareRelease.name | quote }}
+      autoPromotionEnabled: {{ .Values.pipeline.stages.prepareRelease.autoPromotionEnabled }}
+    - stage: {{ .Values.pipeline.stages.dev.name | quote }}
+      autoPromotionEnabled: {{ .Values.pipeline.stages.dev.autoPromotionEnabled }}
+    - stage: {{ .Values.pipeline.stages.integration.name | quote }}
+      autoPromotionEnabled: {{ .Values.pipeline.stages.integration.autoPromotionEnabled }}
+    - stage: {{ .Values.pipeline.stages.preProduction.name | quote }}
+      autoPromotionEnabled: {{ .Values.pipeline.stages.preProduction.autoPromotionEnabled }}
+    - stage: {{ .Values.pipeline.stages.production.name | quote }}
+      autoPromotionEnabled: {{ .Values.pipeline.stages.production.autoPromotionEnabled }}
