@@ -29,6 +29,20 @@ Return the Kargo Project name. The project is bound to the Helm release namespac
 {{- end -}}
 
 {{/*
+Secret containing credentials for the deployment chart/configuration Git repository.
+*/}}
+{{- define "generic-kargo-pipeline.chartGitSecretName" -}}
+{{- include "generic-kargo-pipeline.normalizeName" (printf "%s-chart-git" (include "generic-kargo-pipeline.fullname" .)) -}}
+{{- end -}}
+
+{{/*
+Secret containing credentials for the developer-owned Git repository.
+*/}}
+{{- define "generic-kargo-pipeline.developersGitSecretName" -}}
+{{- include "generic-kargo-pipeline.normalizeName" (printf "%s-developers-git" (include "generic-kargo-pipeline.fullname" .)) -}}
+{{- end -}}
+
+{{/*
 Normalize arbitrary input into a Kubernetes resource name.
 */}}
 {{- define "generic-kargo-pipeline.normalizeName" -}}

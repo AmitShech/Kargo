@@ -3,7 +3,7 @@
   "title": "generic-kargo-pipeline values",
   "type": "object",
   "additionalProperties": true,
-  "required": ["application", "artifact", "git", "environments"],
+  "required": ["application", "artifact", "chartGit", "environments"],
   "properties": {
     "global": {
       "type": "object"
@@ -34,9 +34,9 @@
         }
       }
     },
-    "git": {
+    "chartGit": {
       "type": "object",
-      "required": ["repository", "credentialsSecret"],
+      "required": ["repository"],
       "properties": {
         "repository": {
           "type": "object",
@@ -45,22 +45,12 @@
             "url": {
               "type": "string",
               "minLength": 1
-            }
-          }
-        },
-        "credentialsSecret": {
-          "type": "object",
-          "required": ["name"],
-          "properties": {
-            "name": {
+            },
+            "username": {
               "type": "string",
               "minLength": 1
             },
-            "usernameKey": {
-              "type": "string",
-              "minLength": 1
-            },
-            "passwordKey": {
+            "password": {
               "type": "string",
               "minLength": 1
             }
@@ -103,61 +93,31 @@
         }
       }
     },
-    "developerConfiguration": {
+    "developersGit": {
       "type": "object",
+      "required": ["repository"],
       "properties": {
-        "enabled": {
-          "type": "boolean"
-        },
-        "source": {
+        "repository": {
           "type": "object",
+          "required": ["url"],
           "properties": {
-            "type": {
-              "type": "string",
-              "enum": ["git"]
-            },
-            "repository": {
-              "type": "object",
-              "required": ["url"],
-              "properties": {
-                "url": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
-            },
-            "credentialsSecret": {
-              "type": "object",
-              "required": ["name"],
-              "properties": {
-                "name": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "usernameKey": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "passwordKey": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
-            },
-            "tagTemplate": {
+            "url": {
               "type": "string",
               "minLength": 1
             },
-            "paths": {
-              "type": "object",
-              "properties": {
-                "valuesFile": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
+            "username": {
+              "type": "string",
+              "minLength": 1
+            },
+            "password": {
+              "type": "string",
+              "minLength": 1
             }
           }
+        },
+        "configurationPathFile": {
+          "type": "string",
+          "minLength": 1
         }
       }
     },

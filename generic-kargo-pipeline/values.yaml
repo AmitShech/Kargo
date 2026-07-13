@@ -20,13 +20,11 @@ artifact:
         semverConstraint: ""
         discoveryLimit: 20
 
-git:
+chartGit:
   repository:
     url: https://gitlab.example.com/team/my-app-deployment.git
-  credentialsSecret:
-    name: my-app-git-credentials
-    usernameKey: username
-    passwordKey: password
+    username: username
+    password: password
   branches:
     source: develop
     production: master
@@ -37,20 +35,12 @@ git:
       base: values.yaml
       environment: "values/{{ .Environment }}.yaml"
 
-developerConfiguration:
-  enabled: true
-  source:
-    type: git
-    repository:
-      url: https://gitlab.example.com/team/my-app.git
-    credentialsSecret:
-      name: my-app-developer-git-credentials
-      usernameKey: username
-      passwordKey: password
-    # Future promotion logic will resolve this tag from the current Freight.
-    tagTemplate: "{{ .ImageTag }}"
-    paths:
-      valuesFile: values.yaml
+developersGit:
+  repository:
+    url: https://gitlab.example.com/team/my-app.git
+    username: username
+    password: password
+  configurationPathFile: src/main/resources/values.yaml
 
 environments:
   dev:

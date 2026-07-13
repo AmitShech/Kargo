@@ -41,6 +41,7 @@ This initial chart foundation creates:
 - A Kargo `Project`.
 - A Kargo `ProjectConfig` with configurable promotion policies for `prepare-release`, `dev`, `integration`, `pre-production`, and `production`.
 - A Kargo `Warehouse` subscribed to one or more component image repositories.
+- Kubernetes `Secret` resources for chart Git and developer Git credentials.
 - Default values and JSON Schema validation for important application, Git, image, and environment settings.
 
 The Kargo Project name is derived from the Helm release namespace. Deploy the chart into the namespace that should own the Kargo project.
@@ -58,11 +59,13 @@ Later chart iterations are expected to add:
 
 Environment cleanup and undeploy behavior are intentionally not included yet.
 
-Release branch naming is configured under `git.branches.releaseTemplate`. The default shape is `release/{{ .ImageTag }}/{{ .Commit }}`; future promotion logic will fill those values from the current Freight.
+Release branch naming is configured under `chartGit.branches.releaseTemplate`. The default shape is `release/{{ .ImageTag }}/{{ .Commit }}`; future promotion logic will fill those values from the current Freight.
 
-`git.paths.valuesFile` describes Helm values files inside the deployment configuration repository. `base` points to the shared values file, and `environment` points to the environment-specific values file template. Future promotion steps can update the target environment file while keeping the same Freight image tag, digest, release branch, and commit moving through the pipeline.
+`chartGit.paths.valuesFile` describes Helm values files inside the deployment configuration repository. `base` points to the shared values file, and `environment` points to the environment-specific values file template. Future promotion steps can update the target environment file while keeping the same Freight image tag, digest, release branch, and commit moving through the pipeline.
 
-`developerConfiguration` describes an optional developer-owned configuration source that future prepare-release logic can use as the base chart configuration. Its Git source `tagTemplate` defaults to `{{ .ImageTag }}`, so the configuration can be read from the Git tag associated with the current Freight image tag before deployment-specific values are prepared. This is intentionally outside `git`, which is reserved for the deployment configuration repository managed by this pipeline.
+`developersGit` describes the developer-owned Git repository used by future chart creation logic. `configurationPathFile` points to the file that should be copied from the developer repository tag associated with the current Freight. This is intentionally separate from `chartGit`, which is the deployment/chart configuration repository managed by this pipeline.
+
+The chart creates Kubernetes `Secret` resources for `chartGit.repository.username/password` and `developersGit.repository.username/password`. The default values are placeholders only; do not commit real credentials in an application values file.
 
 ## Validate The Chart
 
@@ -96,4 +99,4 @@ helm upgrade --install my-app-promotion ./generic-kargo-pipeline \
   --values ./my-app-values.yaml
 ```
 
-Do not place passwords, tokens, or other secret values in `values.yaml`. Reference existing Kubernetes Secret names and keys instead.
+Do not commit real passwords, tokens, or other secret values to Git. Provide real credential values through your secured Helm values delivery mechanism.
