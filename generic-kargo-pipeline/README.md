@@ -62,7 +62,7 @@ Release branch naming is configured under `git.branches.releaseTemplate`. The de
 
 `git.paths.valuesFile` describes Helm values files inside the deployment configuration repository. `base` points to the shared values file, and `environment` points to the environment-specific values file template. Future promotion steps can update the target environment file while keeping the same Freight image tag, digest, release branch, and commit moving through the pipeline.
 
-`git.developerConfiguration` describes an optional developer-owned Git source that future prepare-release logic can use as the base chart configuration. Its `tagTemplate` defaults to `{{ .ImageTag }}`, so the configuration can be read from the Git tag associated with the current Freight image tag before deployment-specific values are prepared.
+`developerConfiguration` describes an optional developer-owned configuration source that future prepare-release logic can use as the base chart configuration. Its Git source `tagTemplate` defaults to `{{ .ImageTag }}`, so the configuration can be read from the Git tag associated with the current Freight image tag before deployment-specific values are prepared. This is intentionally outside `git`, which is reserved for the deployment configuration repository managed by this pipeline.
 
 ## Validate The Chart
 
