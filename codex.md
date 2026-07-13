@@ -134,6 +134,9 @@ global:
   labels: {}
   annotations: {}
 
+application:
+  name: my-app
+
 warehouse:
   name: app-images
   interval: 10m
@@ -160,6 +163,7 @@ Previous top-level source, stage, and verification sections were consolidated in
 - one developer-owned Git repository
 - one developer configuration file path
 - one values mapping for future deployment values updates
+- an `enabled` flag that controls whether the component is active in current chart resources
 
 Example:
 
@@ -167,6 +171,7 @@ Example:
 sources:
   components:
     - name: api
+      enabled: true
       image:
         repository: registry.example.com/team/my-app-api
         selectionStrategy: NewestBuild
@@ -181,14 +186,20 @@ sources:
         configuration:
           path: src/main/resources/values.yaml
       valuesMapping:
-        repositoryKey: components.api.image.repository
-        tagKey: components.api.image.tag
-        digestKey: components.api.image.digest
+        tagPath: "{{ .Values.application.name }}.components.{{ .name }}.image.tag"
 ```
 
 The component image tag and developer Git tag are always identical. Do not add a configurable tag-mapping strategy unless the user changes this decision.
 
+When `sources.components[].enabled` is `false`, the component remains configured for future use, but the chart does not render its Warehouse image subscription or component developer Git credential Secret.
+
 `valuesMapping` is not used by the current Warehouse. It is reserved for the future `prepare-release` Stage, which will map Freight image repository, tag, and digest into deployment Helm values.
+
+`valuesMapping.tagPath` is the default deployment values path template for the component image tag. Chart creation can override this field when an application uses a different values hierarchy. Future logic should evaluate it while iterating over a component, where `.Values.application.name` is the application name and `.name` is the current component name. For component `api`, future logic should derive:
+
+```text
+my-app.components.api.image.tag
+```
 
 ## Deployment Git
 
@@ -313,7 +324,7 @@ The chart assumes each component has a separate developer repository. Shared dev
 The Warehouse renders:
 
 - one deployment Git subscription when `sources.deploymentGit.subscription.enabled` is true
-- one image subscription per `sources.components[]`
+- one image subscription per enabled `sources.components[]`
 
 Component names are not rendered inside Warehouse image subscriptions because Kargo image subscriptions do not need them.
 

@@ -21,7 +21,7 @@ spec:
   interval: {{ .Values.warehouse.interval | quote }}
   freightCreationPolicy: {{ .Values.warehouse.freightCreationPolicy | quote }}
   subscriptions:
-    {{- if .Values.sources.deploymentGit.subscription.enabled }}
+{{- if .Values.sources.deploymentGit.subscription.enabled }}
     - git:
         repoURL: {{ .Values.sources.deploymentGit.repository.url | quote }}
         branch: {{ .Values.sources.deploymentGit.subscription.branch | quote }}
@@ -37,8 +37,9 @@ spec:
         excludePaths:
           {{- toYaml . | nindent 10 }}
         {{- end }}
-    {{- end }}
-    {{- range .Values.sources.components }}
+{{- end }}
+{{- range .Values.sources.components }}
+{{- if .enabled }}
     - image:
         repoURL: {{ .image.repository | quote }}
         imageSelectionStrategy: {{ default "NewestBuild" .image.selectionStrategy | quote }}
@@ -51,4 +52,5 @@ spec:
         {{- with .image.discoveryLimit }}
         discoveryLimit: {{ . }}
         {{- end }}
-    {{- end }}
+{{- end }}
+{{- end }}

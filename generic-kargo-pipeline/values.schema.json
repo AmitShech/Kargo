@@ -3,7 +3,7 @@
   "title": "generic-kargo-pipeline values",
   "type": "object",
   "additionalProperties": false,
-  "required": ["global", "warehouse", "sources", "pipeline", "integrations"],
+  "required": ["global", "application", "warehouse", "sources", "pipeline", "integrations"],
   "properties": {
     "nameOverride": { "type": "string" },
     "fullnameOverride": { "type": "string" },
@@ -19,6 +19,14 @@
           "type": "object",
           "additionalProperties": { "type": ["string", "number", "boolean"] }
         }
+      }
+    },
+    "application": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 }
       }
     },
     "warehouse": {
@@ -115,9 +123,10 @@
     "component": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "image", "git", "valuesMapping"],
+      "required": ["name", "enabled", "image", "git", "valuesMapping"],
       "properties": {
         "name": { "type": "string", "minLength": 1 },
+        "enabled": { "type": "boolean" },
         "image": {
           "type": "object",
           "additionalProperties": false,
@@ -149,11 +158,9 @@
         "valuesMapping": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["repositoryKey", "tagKey", "digestKey"],
+          "required": ["tagPath"],
           "properties": {
-            "repositoryKey": { "type": "string", "minLength": 1 },
-            "tagKey": { "type": "string", "minLength": 1 },
-            "digestKey": { "type": "string", "minLength": 1 }
+            "tagPath": { "type": "string", "minLength": 1 }
           }
         }
       }

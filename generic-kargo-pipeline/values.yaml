@@ -5,6 +5,9 @@ global:
   labels: {}
   annotations: {}
 
+application:
+  name: my-app
+
 warehouse:
   name: app-images
   interval: 10m
@@ -13,6 +16,7 @@ warehouse:
 sources:
   components:
     - name: api
+      enabled: true
       image:
         repository: registry.example.com/team/my-app-api
         selectionStrategy: NewestBuild
@@ -29,11 +33,10 @@ sources:
         configuration:
           path: src/main/resources/values.yaml
       valuesMapping:
-        repositoryKey: components.api.image.repository
-        tagKey: components.api.image.tag
-        digestKey: components.api.image.digest
+        tagPath: "{{ .Values.application.name }}.components.{{ .name }}.image.tag"
 
     - name: worker
+      enabled: true
       image:
         repository: registry.example.com/team/my-app-worker
         selectionStrategy: NewestBuild
@@ -48,9 +51,7 @@ sources:
         configuration:
           path: src/main/resources/values.yaml
       valuesMapping:
-        repositoryKey: components.worker.image.repository
-        tagKey: components.worker.image.tag
-        digestKey: components.worker.image.digest
+        tagPath: "{{ .Values.application.name }}.components.{{ .name }}.image.tag"
 
   deploymentGit:
     repository:

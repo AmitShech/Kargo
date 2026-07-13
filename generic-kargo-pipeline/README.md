@@ -60,6 +60,7 @@ The component image tag and developer Git tag are intentionally the same value. 
 sources:
   components:
     - name: api
+      enabled: true
       image:
         repository: registry.example.com/team/my-app-api
         selectionStrategy: NewestBuild
@@ -71,12 +72,18 @@ sources:
         configuration:
           path: src/main/resources/values.yaml
       valuesMapping:
-        repositoryKey: components.api.image.repository
-        tagKey: components.api.image.tag
-        digestKey: components.api.image.digest
+        tagPath: "{{ .Values.application.name }}.components.{{ .name }}.image.tag"
 ```
 
 The component `name` is required because future stages will use it to map Freight artifacts into deployment values.
+
+`enabled` controls whether the component source is active. When `enabled: false`, the component remains configured for future use, but the chart does not render its Warehouse image subscription or component developer Git credential Secret.
+
+`valuesMapping.tagPath` is the default deployment values path template for the component image tag. Chart creation can override this field when an application uses a different values hierarchy. Future logic should evaluate it while iterating over a component, where `.Values.application.name` is the application name and `.name` is the current component name. For example, component `api` resolves to:
+
+```text
+my-app.components.api.image.tag
+```
 
 ## Release Sources
 
