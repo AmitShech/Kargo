@@ -5,9 +5,6 @@ global:
   labels: {}
   annotations: {}
 
-application:
-  name: my-app
-
 artifact:
   components:
     - name: my-app

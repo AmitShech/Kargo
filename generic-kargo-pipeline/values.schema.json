@@ -3,23 +3,13 @@
   "title": "generic-kargo-pipeline values",
   "type": "object",
   "additionalProperties": true,
-  "required": ["application", "artifact", "chartGit", "environments"],
+  "required": ["artifact", "chartGit", "environments"],
   "properties": {
     "global": {
       "type": "object"
     },
     "kargo": {
       "type": "object"
-    },
-    "application": {
-      "type": "object",
-      "required": ["name"],
-      "properties": {
-        "name": {
-          "type": "string",
-          "minLength": 1
-        }
-      }
     },
     "artifact": {
       "type": "object",

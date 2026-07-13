@@ -67,10 +67,9 @@ app.kubernetes.io/version: {{ . | quote }}
 {{- end -}}
 
 {{/*
-Application identity labels.
+Kargo identity labels.
 */}}
 {{- define "generic-kargo-pipeline.applicationLabels" -}}
 app.kubernetes.io/component: promotion-pipeline
-app.kubernetes.io/application: {{ .Values.application.name | quote }}
 kargo.akuity.io/project: {{ include "generic-kargo-pipeline.projectName" . | quote }}
 {{- end -}}
