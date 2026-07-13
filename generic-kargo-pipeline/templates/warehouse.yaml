@@ -2,7 +2,6 @@ apiVersion: kargo.akuity.io/v1alpha1
 kind: Warehouse
 metadata:
   name: {{ include "generic-kargo-pipeline.fullname" . | quote }}
-  namespace: {{ include "generic-kargo-pipeline.projectName" . | quote }}
   labels:
     {{- include "generic-kargo-pipeline.labels" . | nindent 4 }}
     {{- include "generic-kargo-pipeline.applicationLabels" . | nindent 4 }}
