@@ -3,7 +3,7 @@
   "title": "generic-kargo-pipeline values",
   "type": "object",
   "additionalProperties": false,
-  "required": ["global", "warehouse", "sources", "pipeline", "integrations"],
+  "required": ["global", "warehouse", "sources", "pipeline"],
   "properties": {
     "nameOverride": { "type": "string" },
     "fullnameOverride": { "type": "string" },
@@ -34,7 +34,7 @@
     "sources": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["componentDefaults", "components", "deploymentGit"],
+      "required": ["components", "deploymentGit"],
       "properties": {
         "componentDefaults": { "$ref": "#/definitions/componentDefaults" },
         "components": {
@@ -62,80 +62,23 @@
           }
         }
       }
-    },
-    "integrations": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["serviceNow", "gitLab"],
-      "properties": {
-        "serviceNow": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["enabled", "credentials"],
-          "properties": {
-            "enabled": { "type": "boolean" },
-            "credentials": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["username", "password"],
-              "properties": {
-                "username": { "type": "string" },
-                "password": { "type": "string" }
-              }
-            }
-          }
-        },
-        "gitLab": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["mergeRequest"],
-          "properties": {
-            "mergeRequest": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["enabled", "credentials"],
-              "properties": {
-                "enabled": { "type": "boolean" },
-                "credentials": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "required": ["token"],
-                  "properties": {
-                    "token": { "type": "string" }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
     }
   },
   "definitions": {
     "componentDefaults": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled", "image", "git"],
       "properties": {
         "enabled": { "type": "boolean" },
         "image": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["selectionStrategy", "allowedTags", "semverConstraint", "strictSemvers", "discoveryLimit"],
           "properties": {
             "selectionStrategy": { "$ref": "#/definitions/imageSelectionStrategy" },
             "allowedTags": { "type": "string" },
             "semverConstraint": { "type": "string" },
             "strictSemvers": { "type": "boolean" },
             "discoveryLimit": { "type": "integer", "minimum": 1 }
-          }
-        },
-        "git": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["configuration"],
-          "properties": {
-            "configuration": { "$ref": "#/definitions/gitConfiguration" }
           }
         }
       }
@@ -150,9 +93,9 @@
         "image": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["repository"],
+          "required": ["artifactory"],
           "properties": {
-            "repository": { "type": "string", "minLength": 1 },
+            "artifactory": { "type": "string", "minLength": 1 },
             "selectionStrategy": { "$ref": "#/definitions/imageSelectionStrategy" },
             "allowedTags": { "type": "string" },
             "semverConstraint": { "type": "string" },

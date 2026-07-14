@@ -1,4 +1,5 @@
-{{- $componentDefaults := .Values.sources.componentDefaults -}}
+{{- $builtInComponentDefaults := include "generic-kargo-pipeline.componentDefaults" . | fromYaml -}}
+{{- $componentDefaults := mergeOverwrite (deepCopy $builtInComponentDefaults) (default dict .Values.sources.componentDefaults) -}}
 {{- $hasEnabledComponents := false -}}
 {{- range .Values.sources.components }}
 {{- $component := mergeOverwrite (deepCopy $componentDefaults) . -}}

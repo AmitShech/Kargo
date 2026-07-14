@@ -43,6 +43,19 @@ Secret containing credentials for a component developer-owned Git repository.
 {{- end -}}
 
 {{/*
+Built-in component defaults keep values.yaml focused on application-specific inputs.
+*/}}
+{{- define "generic-kargo-pipeline.componentDefaults" -}}
+enabled: true
+image:
+  selectionStrategy: NewestBuild
+  allowedTags: ""
+  semverConstraint: ""
+  strictSemvers: false
+  discoveryLimit: 20
+{{- end -}}
+
+{{/*
 Validate that a Git credential pair is either complete or empty.
 */}}
 {{- define "generic-kargo-pipeline.validateGitCredentialPair" -}}

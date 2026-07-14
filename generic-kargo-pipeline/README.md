@@ -49,21 +49,13 @@ Everything before Production is intended to be automatic. Production auto-promot
 
 ## Component Defaults
 
-Common component settings live under `sources.componentDefaults`. Helm merges these defaults with every entry in `sources.components`; component-specific values override the defaults.
+Image-selection defaults are built into the chart, and the default `values.yaml` also writes those values under the example component so the component shape is easy to copy. `sources.componentDefaults` is an optional override hook; set only the shared defaults you want to change. Helm merges built-in defaults, optional `sources.componentDefaults`, and then each component; component-specific values win. The developer Git configuration path is not a built-in default; set it on each component that needs it.
 
 ```yaml
 sources:
   componentDefaults:
-    enabled: true
     image:
-      selectionStrategy: NewestBuild
-      allowedTags: ""
-      semverConstraint: ""
-      strictSemvers: false
-      discoveryLimit: 20
-    git:
-      configuration:
-        path: src/main/resources/values.yaml
+      discoveryLimit: 50
 ```
 
 The default chart values include one example component named `main`:
@@ -72,13 +64,21 @@ The default chart values include one example component named `main`:
 sources:
   components:
     - name: main
+      enabled: true
       image:
-        repository: registry.example.com/team/my-app
+        artifactory: registry.example.com/team/my-app
+        selectionStrategy: NewestBuild
+        allowedTags: ""
+        semverConstraint: ""
+        strictSemvers: false
+        discoveryLimit: 20
       git:
         repository:
           url: https://gitlab.example.com/team/my-app.git
           username: ""
           password: ""
+        configuration:
+          path: src/main/resources/values.yaml
       valuesMapping:
         tagPath: image.tag
 ```
@@ -92,7 +92,7 @@ sources:
   components:
     - name: api
       image:
-        repository: registry.example.com/team/my-app-api
+        artifactory: registry.example.com/team/my-app-api
         selectionStrategy: SemVer
         semverConstraint: ">=1.0.0 <2.0.0"
       git:
@@ -104,7 +104,7 @@ sources:
     - name: worker
       enabled: false
       image:
-        repository: registry.example.com/team/my-app-worker
+        artifactory: registry.example.com/team/my-app-worker
       git:
         repository:
           url: https://gitlab.example.com/team/my-app-worker.git
@@ -135,7 +135,7 @@ Do not use nested template expressions such as `{{ .Values.application.name }}` 
 The Warehouse can create Freight from:
 
 - the deployment Git repository, when `sources.deploymentGit.subscription.enabled` is true
-- one image repository per enabled component
+- one image artifactory source per enabled component
 
 An empty Warehouse is allowed intentionally. If deployment Git is disabled and no component is enabled, Helm install/upgrade notes show this warning:
 
@@ -235,8 +235,7 @@ Later chart iterations are expected to add:
 - native Kargo `spec.verification` configuration for Dev, Integration, and optionally Production
 - verification resources required by the installed Kargo version
 - Argo CD promotion steps for deployment stages
-- ServiceNow change creation
-- GitLab merge request creation
+- production-change and merge-request preparation when those designs are added
 
 Environment cleanup and undeploy behavior are intentionally not included yet.
 

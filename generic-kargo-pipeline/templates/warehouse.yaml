@@ -1,5 +1,6 @@
 {{- include "generic-kargo-pipeline.validateValues" . -}}
-{{- $componentDefaults := .Values.sources.componentDefaults -}}
+{{- $builtInComponentDefaults := include "generic-kargo-pipeline.componentDefaults" . | fromYaml -}}
+{{- $componentDefaults := mergeOverwrite (deepCopy $builtInComponentDefaults) (default dict .Values.sources.componentDefaults) -}}
 {{- $hasEnabledComponents := false -}}
 {{- range .Values.sources.components }}
 {{- $component := mergeOverwrite (deepCopy $componentDefaults) . -}}
@@ -46,7 +47,7 @@ spec:
 {{- $component := mergeOverwrite (deepCopy $componentDefaults) . -}}
 {{- if $component.enabled }}
     - image:
-        repoURL: {{ $component.image.repository | quote }}
+        repoURL: {{ $component.image.artifactory | quote }}
         imageSelectionStrategy: {{ default "NewestBuild" $component.image.selectionStrategy | quote }}
         {{- with $component.image.allowedTags }}
         allowTags: {{ . | quote }}

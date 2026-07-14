@@ -11,33 +11,29 @@ warehouse:
   freightCreationPolicy: Automatic
 
 sources:
-  componentDefaults:
-    enabled: true
-
-    image:
-      selectionStrategy: NewestBuild
-      # Optional. Set to a regular expression to restrict eligible tags.
-      allowedTags: ""
-      # Optional. Used only when the selected image strategy requires a SemVer constraint.
-      semverConstraint: ""
-      strictSemvers: false
-      discoveryLimit: 20
-
-    git:
-      configuration:
-        path: src/main/resources/values.yaml
+  # Optional. Set only the shared component defaults you want to override.
+  componentDefaults: {}
 
   components:
     - name: main
-
+      enabled: true
       image:
-        repository: registry.example.com/team/my-app
+        artifactory: registry.example.com/team/my-app
+        selectionStrategy: NewestBuild
+        # Optional. Set to a regular expression to restrict eligible tags.
+        allowedTags: ""
+        # Optional. Used only when the selected image strategy requires a SemVer constraint.
+        semverConstraint: ""
+        strictSemvers: false
+        discoveryLimit: 20
 
       git:
         repository:
           url: https://gitlab.example.com/team/my-app.git
           username: ""
           password: ""
+        configuration:
+          path: src/main/resources/values.yaml
 
       valuesMapping:
         tagPath: image.tag
@@ -117,16 +113,3 @@ pipeline:
         enabled: true
         templateName: my-app-production-smoke
         timeout: 10m
-
-integrations:
-  serviceNow:
-    enabled: false
-    credentials:
-      username: ""
-      password: ""
-
-  gitLab:
-    mergeRequest:
-      enabled: false
-      credentials:
-        token: ""
