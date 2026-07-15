@@ -75,13 +75,16 @@ sources:
           url: https://gitlab.example.com/team/my-app.git
           username: ""
           password: ""
-        configuration:
-          path: src/main/resources/values.yaml
+      releaseConfiguration:
+        generationEnabled: true
+        devConfigurationPath: src/main/resources/values.yaml
+        deploymentOverlayPath: values/overrides/main.yaml
+        outputPath: values/releases/main.yaml
       valuesMapping:
         tagPath: image.tag
 ```
 
-Disabled components do not render Warehouse image subscriptions. Future Stage logic should also skip disabled components.
+Disabled components do not render Warehouse image subscriptions or `prepare-release` promotion steps.
 
 ## Component Defaults
 
@@ -126,7 +129,7 @@ Template pattern:
 {{- $component := mergeOverwrite (deepCopy $componentDefaults) . -}}
 ```
 
-The developer Git configuration path is not a built-in default. Set it on each component that needs it.
+The developer Git configuration path is not a built-in default. Set `releaseConfiguration.devConfigurationPath` on each component whose `prepare-release` configuration generation is enabled.
 
 ## Image Selection
 
@@ -177,7 +180,7 @@ services.backend.api.image.tag
 workloads.consumers.orders.imageTag
 ```
 
-`valuesMapping.tagPath` is not a Helm template and must not contain nested expressions such as `{{ .Values.application.name }}`. The future `prepare-release` Stage will pass this literal path directly to a Kargo YAML update operation.
+`valuesMapping.tagPath` is not a Helm template and must not contain nested expressions such as `{{ .Values.application.name }}`. The `prepare-release` Stage passes this literal path directly to a Kargo YAML update operation.
 
 ## Deployment Git Source
 
@@ -209,7 +212,7 @@ sources:
         environment: values/${{ vars.environment }}.yaml
 ```
 
-The Warehouse Git subscription uses `sources.deploymentGit.branches.source`. This is both the Warehouse-watched branch and the future release branch base.
+The Warehouse Git subscription uses `sources.deploymentGit.branches.source`. The exact deployment commit selected into Freight becomes the immutable base for the generated release branch.
 
 Only commits matching `includePaths` should count as configuration changes. Pipeline-generated paths should be excluded to avoid recursive Freight creation.
 

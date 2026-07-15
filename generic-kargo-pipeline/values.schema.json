@@ -86,7 +86,7 @@
     "component": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "image", "git", "valuesMapping"],
+      "required": ["name", "image", "git", "releaseConfiguration", "valuesMapping"],
       "properties": {
         "name": { "type": "string", "minLength": 1 },
         "enabled": { "type": "boolean" },
@@ -108,9 +108,11 @@
           "additionalProperties": false,
           "required": ["repository"],
           "properties": {
-            "repository": { "$ref": "#/definitions/gitRepository" },
-            "configuration": { "$ref": "#/definitions/gitConfiguration" }
+            "repository": { "$ref": "#/definitions/gitRepository" }
           }
+        },
+        "releaseConfiguration": {
+          "$ref": "#/definitions/releaseConfiguration"
         },
         "valuesMapping": {
           "type": "object",
@@ -125,6 +127,29 @@
           }
         }
       }
+    },
+    "releaseConfiguration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["generationEnabled", "outputPath"],
+      "properties": {
+        "generationEnabled": { "type": "boolean" },
+        "devConfigurationPath": { "$ref": "#/definitions/workspaceRelativePath" },
+        "deploymentOverlayPath": { "$ref": "#/definitions/workspaceRelativePath" },
+        "outputPath": { "$ref": "#/definitions/workspaceRelativePath" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "generationEnabled": { "const": true }
+            }
+          },
+          "then": {
+            "required": ["devConfigurationPath", "deploymentOverlayPath"]
+          }
+        }
+      ]
     },
     "deploymentGit": {
       "type": "object",
@@ -179,14 +204,6 @@
         "url": { "type": "string", "minLength": 1 },
         "username": { "type": "string" },
         "password": { "type": "string" }
-      }
-    },
-    "gitConfiguration": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["path"],
-      "properties": {
-        "path": { "type": "string", "minLength": 1 }
       }
     },
     "imageSelectionStrategy": {
@@ -253,6 +270,11 @@
     "pathList": {
       "type": "array",
       "items": { "type": "string", "minLength": 1 }
+    },
+    "workspaceRelativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^/\\\\].*$"
     }
   }
 }

@@ -1,0 +1,114 @@
+{{- include "generic-kargo-pipeline.validateValues" . -}}
+{{- $builtInComponentDefaults := include "generic-kargo-pipeline.componentDefaults" . | fromYaml -}}
+{{- $componentDefaults := mergeOverwrite (deepCopy $builtInComponentDefaults) (default dict .Values.sources.componentDefaults) -}}
+{{- $enabledComponents := list -}}
+{{- $deploymentCommitExpression := include "generic-kargo-pipeline.kargoExpression" "commitFrom(vars.deploymentRepo).ID" -}}
+{{- $targetBranchExpression := include "generic-kargo-pipeline.kargoExpression" "vars.targetBranch" -}}
+{{- $targetFreightNameExpression := include "generic-kargo-pipeline.kargoExpression" "ctx.targetFreight.name" -}}
+{{- $committedRevisionExpression := include "generic-kargo-pipeline.kargoExpression" "outputs.commit.commit" -}}
+{{- range .Values.sources.components -}}
+{{- $component := mergeOverwrite (deepCopy $componentDefaults) . -}}
+{{- if $component.enabled -}}
+{{- $enabledComponents = append $enabledComponents $component -}}
+{{- end -}}
+{{- end }}
+apiVersion: kargo.akuity.io/v1alpha1
+kind: Stage
+metadata:
+  name: {{ include "generic-kargo-pipeline.normalizeName" .Values.pipeline.stages.prepareRelease.name | quote }}
+  labels:
+    {{- include "generic-kargo-pipeline.labels" . | nindent 4 }}
+    {{- include "generic-kargo-pipeline.applicationLabels" . | nindent 4 }}
+  {{- with .Values.global.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  requestedFreight:
+    - origin:
+        kind: Warehouse
+        name: {{ include "generic-kargo-pipeline.normalizeName" .Values.warehouse.name | quote }}
+      sources:
+        direct: true
+  promotionTemplate:
+    spec:
+      vars:
+        - name: deploymentRepo
+          value: {{ .Values.sources.deploymentGit.repository.url | quote }}
+        - name: targetBranch
+          value: {{ .Values.pipeline.stages.prepareRelease.releaseBranch | quote }}
+      steps:
+        - uses: git-clone
+          as: clone-deployment
+          config:
+            repoURL: {{ .Values.sources.deploymentGit.repository.url | quote }}
+            checkout:
+              - commit: {{ $deploymentCommitExpression | quote }}
+                path: ./source
+              - branch: {{ $targetBranchExpression | quote }}
+                create: true
+                path: ./release
+
+        - uses: git-clear
+          as: clear-release
+          config:
+            path: ./release
+
+        - uses: copy
+          as: copy-deployment-source
+          config:
+            inPath: ./source
+            outPath: ./release
+
+{{- range $enabledComponents }}
+{{- $componentName := include "generic-kargo-pipeline.normalizeName" .name }}
+{{- if .releaseConfiguration.generationEnabled }}
+{{- $devConfigurationPath := replace "name" $componentName .releaseConfiguration.devConfigurationPath }}
+{{- $deploymentOverlayPath := replace "name" $componentName .releaseConfiguration.deploymentOverlayPath }}
+{{- $outputPath := replace "name" $componentName .releaseConfiguration.outputPath }}
+{{- $imageTagExpression := include "generic-kargo-pipeline.kargoExpression" (printf "imageFrom(%q).Tag" .image.artifactory) }}
+        - uses: git-clone
+          as: {{ print "clone-" $componentName "-config" | quote }}
+          config:
+            repoURL: {{ .git.repository.url | quote }}
+            checkout:
+              - tag: {{ $imageTagExpression | squote }}
+                path: {{ print "./config/" $componentName | quote }}
+        - uses: yaml-merge
+          as: {{ print "merge-" $componentName "-config" | quote }}
+          config:
+            inFiles:
+              - {{ print "./config/" $componentName "/" $devConfigurationPath | quote }}
+              - {{ print "./release/" $deploymentOverlayPath | quote }}
+            outFile: {{ print "./release/" $outputPath | quote }}
+{{- end }}
+{{- $outputPath := replace "name" $componentName .releaseConfiguration.outputPath }}
+{{- $imageTagValueExpression := include "generic-kargo-pipeline.kargoExpression" (printf "imageFrom(%q).Tag" .image.artifactory) }}
+        - uses: yaml-update
+          as: {{ print "update-" $componentName "-image" | quote }}
+          config:
+            path: {{ print "./release/" $outputPath | quote }}
+            updates:
+              - key: {{ .valuesMapping.tagPath | quote }}
+                value: {{ $imageTagValueExpression | squote }}
+{{- end }}
+
+        - uses: git-commit
+          as: commit
+          config:
+            path: ./release
+            message: "prepare release according to freight data"
+
+        - uses: git-push
+          as: push-release
+          config:
+            path: ./release
+            targetBranch: {{ $targetBranchExpression | quote }}
+
+        - uses: set-metadata
+          config:
+            updates:
+              - kind: Freight
+                name: {{ $targetFreightNameExpression | quote }}
+                values:
+                  deploy-from-commit: {{ $committedRevisionExpression | quote }}

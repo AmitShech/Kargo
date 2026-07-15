@@ -46,13 +46,14 @@ Secret containing credentials for a component developer-owned Git repository.
 Built-in component defaults keep values.yaml focused on application-specific inputs.
 */}}
 {{- define "generic-kargo-pipeline.componentDefaults" -}}
-enabled: true
 image:
   selectionStrategy: NewestBuild
   allowedTags: ""
   semverConstraint: ""
   strictSemvers: false
   discoveryLimit: 20
+releaseConfiguration:
+  generationEnabled: false
 {{- end -}}
 
 {{/*
@@ -68,11 +69,35 @@ Validate that a Git credential pair is either complete or empty.
 {{- end -}}
 
 {{/*
+Wrap an expression body in Kargo's expression delimiters without nesting
+Kargo delimiters directly inside a Helm template action.
+*/}}
+{{- define "generic-kargo-pipeline.kargoExpression" -}}
+{{- printf "$%s %s %s" (repeat 2 "{") . (repeat 2 "}") -}}
+{{- end -}}
+
+{{/*
+Validate a path that will be placed beneath a Kargo promotion workspace.
+*/}}
+{{- define "generic-kargo-pipeline.validateWorkspaceRelativePath" -}}
+{{- $scope := .scope -}}
+{{- $path := default "" .path -}}
+{{- $normalizedPath := replace "\\" "/" $path -}}
+{{- if or (not $path) (hasPrefix "/" $normalizedPath) (regexMatch "^[A-Za-z]:" $normalizedPath) (has ".." (splitList "/" $normalizedPath)) -}}
+{{- fail (printf "%s must be a non-empty relative path without parent traversal" $scope) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Validate values that cannot be expressed cleanly in JSON Schema.
 */}}
 {{- define "generic-kargo-pipeline.validateValues" -}}
 {{- $componentNames := dict -}}
+{{- $releaseOutputPaths := dict -}}
+{{- $builtInComponentDefaults := include "generic-kargo-pipeline.componentDefaults" . | fromYaml -}}
+{{- $componentDefaults := mergeOverwrite (deepCopy $builtInComponentDefaults) (default dict .Values.sources.componentDefaults) -}}
 {{- range .Values.sources.components }}
+{{- $component := mergeOverwrite (deepCopy $componentDefaults) . -}}
 {{- $componentName := include "generic-kargo-pipeline.normalizeName" .name -}}
 {{- if hasKey $componentNames $componentName -}}
 {{- fail (printf "sources.components contains duplicate normalized component name %q" $componentName) -}}
@@ -80,6 +105,22 @@ Validate values that cannot be expressed cleanly in JSON Schema.
 {{- $_ := set $componentNames $componentName true -}}
 {{- $gitRepository := default dict .git.repository -}}
 {{- include "generic-kargo-pipeline.validateGitCredentialPair" (dict "scope" (printf "component %q developer Git" .name) "username" $gitRepository.username "password" $gitRepository.password) -}}
+{{- if $component.enabled -}}
+{{- $releaseConfiguration := default dict .releaseConfiguration -}}
+{{- $resolvedOutputPath := replace "name" $componentName $releaseConfiguration.outputPath -}}
+{{- include "generic-kargo-pipeline.validateWorkspaceRelativePath" (dict "scope" (printf "component %q releaseConfiguration.outputPath" .name) "path" $resolvedOutputPath) -}}
+{{- $normalizedOutputPath := replace "\\" "/" $resolvedOutputPath -}}
+{{- if hasKey $releaseOutputPaths $normalizedOutputPath -}}
+{{- fail (printf "enabled components %q and %q resolve to the same releaseConfiguration.outputPath %q" (get $releaseOutputPaths $normalizedOutputPath) .name $resolvedOutputPath) -}}
+{{- end -}}
+{{- $_ := set $releaseOutputPaths $normalizedOutputPath .name -}}
+{{- if $releaseConfiguration.generationEnabled -}}
+{{- $resolvedDevPath := replace "name" $componentName $releaseConfiguration.devConfigurationPath -}}
+{{- $resolvedOverlayPath := replace "name" $componentName $releaseConfiguration.deploymentOverlayPath -}}
+{{- include "generic-kargo-pipeline.validateWorkspaceRelativePath" (dict "scope" (printf "component %q releaseConfiguration.devConfigurationPath" .name) "path" $resolvedDevPath) -}}
+{{- include "generic-kargo-pipeline.validateWorkspaceRelativePath" (dict "scope" (printf "component %q releaseConfiguration.deploymentOverlayPath" .name) "path" $resolvedOverlayPath) -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}
 {{- $deploymentRepository := default dict .Values.sources.deploymentGit.repository -}}
 {{- include "generic-kargo-pipeline.validateGitCredentialPair" (dict "scope" "deployment Git" "username" $deploymentRepository.username "password" $deploymentRepository.password) -}}

@@ -16,16 +16,17 @@ generic-kargo-pipeline/
 
 ## Current Scope
 
-The chart currently creates only:
+The chart currently creates:
 
 - Kargo `Project`
 - Kargo `ProjectConfig`
 - Kargo `Warehouse`
+- Kargo `prepare-release` `Stage`
 - Kubernetes Git credential `Secret` resources
 
 Do not add these until explicitly requested:
 
-- Kargo `Stage` resources
+- Kargo `Stage` resources other than `prepare-release`
 - Kargo verification resources or `AnalysisTemplate` resources
 - native Kargo `spec.verification`
 - Argo CD deployment promotion steps
@@ -98,16 +99,19 @@ generic-kargo-pipeline/
     |-- project-config.yaml
     |-- project.yaml
     |-- warehouse.yaml
-    `-- secrets/
-        |-- component-dev-git.yaml
-        `-- deployment-git.yaml
+    |-- secrets/
+    |   |-- component-dev-git.yaml
+    |   `-- deployment-git.yaml
+    `-- stages/
+        `-- prepare-release.yaml
 ```
 
 Project knowledge files:
 
 ```text
+AGENTS.md
 project/
-|-- AGENTS.md
+|-- prepare-release.md
 |-- project.md
 `-- warehouse.md
 ```
@@ -168,7 +172,7 @@ pipeline:
       verification: {}
 ```
 
-Deployment settings exist only under `dev`, `integration`, and `production`. Verification settings exist only under deployment stages and are placeholders for future resources. `prepareRelease.releaseBranch` is a literal Kargo expression for future Stage logic. Helm must not evaluate it.
+Deployment settings exist only under `dev`, `integration`, and `production`. Verification settings exist only under deployment stages and are placeholders for future resources. `prepareRelease.releaseBranch` is a literal Kargo expression used by the prepare-release Stage. Helm must not evaluate it.
 
 ## Validation Workflow
 
@@ -194,4 +198,4 @@ Known benign Helm lint output:
 - Keep component defaults built into `_helpers.tpl`; allow optional `sources.componentDefaults` only for overrides.
 - Allow an intentionally empty Warehouse.
 - Do not add cleanup yet.
-- Do not add Stages or verification templates until explicitly requested.
+- Do not add the remaining Stages or verification templates until explicitly requested.

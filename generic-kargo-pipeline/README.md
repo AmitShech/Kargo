@@ -1,19 +1,20 @@
 ﻿# generic-kargo-pipeline
 
-`generic-kargo-pipeline` is a reusable Helm chart foundation for a generic Kargo-based continuous delivery promotion pipeline. It is for teams that own deployment and promotion while application build and image publishing happen elsewhere.
+`generic-kargo-pipeline` is a reusable Helm chart for a generic Kargo-based continuous delivery promotion pipeline. It is for teams that own deployment and promotion while application build and image publishing happen elsewhere.
 
 Install only one chart instance per Kargo project namespace. The chart intentionally creates project-scoped resources with stable names.
 
 ## Current Scope
 
-This chart currently creates only:
+This chart currently creates:
 
 - Kargo `Project`
 - Kargo `ProjectConfig`
 - Kargo `Warehouse`
+- the Kargo `prepare-release` `Stage`
 - Kubernetes Git credential `Secret` resources
 
-It does not create Kargo `Stage` resources, `AnalysisTemplate` resources, native Kargo `spec.verification`, Argo CD promotion steps, ServiceNow API calls, GitLab merge request API calls, cleanup, or undeploy logic yet.
+It does not create the Dev, Integration, Pre-production, or Production `Stage` resources, `AnalysisTemplate` resources, native Kargo `spec.verification`, Argo CD promotion steps, ServiceNow API calls, GitLab merge request API calls, cleanup, or undeploy logic yet.
 
 ## Intended Promotion Flow
 
@@ -49,7 +50,7 @@ Everything before Production is intended to be automatic. Production auto-promot
 
 ## Component Defaults
 
-Image-selection defaults are built into the chart, and the default `values.yaml` also writes those values under the example component so the component shape is easy to copy. `sources.componentDefaults` is an optional override hook; set only the shared defaults you want to change. Helm merges built-in defaults, optional `sources.componentDefaults`, and then each component; component-specific values win. The developer Git configuration path is not a built-in default; set it on each component that needs it.
+Image-selection defaults are built into the chart, and the default `values.yaml` also writes those values under the example component so the component shape is easy to copy. `sources.componentDefaults` is an optional override hook; set only the shared defaults you want to change. Helm merges built-in defaults, optional `sources.componentDefaults`, and then each component; component-specific values win. `releaseConfiguration.devConfigurationPath` is not a built-in default; set it when component configuration generation is enabled.
 
 ```yaml
 sources:
@@ -77,8 +78,11 @@ sources:
           url: https://gitlab.example.com/team/my-app.git
           username: ""
           password: ""
-        configuration:
-          path: src/main/resources/values.yaml
+      releaseConfiguration:
+        generationEnabled: true
+        devConfigurationPath: src/main/resources/values.yaml
+        deploymentOverlayPath: values/overrides/main.yaml
+        outputPath: values/releases/main.yaml
       valuesMapping:
         tagPath: image.tag
 ```
@@ -98,6 +102,11 @@ sources:
       git:
         repository:
           url: https://gitlab.example.com/team/my-app-api.git
+      releaseConfiguration:
+        generationEnabled: true
+        devConfigurationPath: config/values.yaml
+        deploymentOverlayPath: values/overrides/api.yaml
+        outputPath: values/releases/api.yaml
       valuesMapping:
         tagPath: services.backend.api.image.tag
 
@@ -108,6 +117,9 @@ sources:
       git:
         repository:
           url: https://gitlab.example.com/team/my-app-worker.git
+      releaseConfiguration:
+        generationEnabled: false
+        outputPath: values/releases/worker.yaml
       valuesMapping:
         tagPath: workloads.orders.imageTag
 ```
@@ -130,6 +142,43 @@ workloads.orders.imageTag
 
 Do not use nested template expressions such as `{{ .Values.application.name }}` in this field.
 
+## Prepare Release
+
+The `prepare-release` Stage requests Freight directly from the Warehouse and prepares one deployment configuration file per enabled component. The deployment repository is checked out twice: the exact commit carried by Freight becomes the source worktree, and `release/<Freight name>` becomes a separate output worktree. Kargo creates the release branch when it does not exist, clears its worktree, and copies the complete deployment source tree into it before applying component changes.
+
+Each enabled component must define its release output:
+
+```yaml
+sources:
+  components:
+    - name: main
+      # image and Git repository settings omitted
+      releaseConfiguration:
+        generationEnabled: true
+        devConfigurationPath: src/main/resources/values.yaml
+        deploymentOverlayPath: values/overrides/main.yaml
+        outputPath: values/releases/main.yaml
+      valuesMapping:
+        tagPath: image.tag
+```
+
+When `generationEnabled` is `true`, the Stage checks out the component developer repository at the Git tag matching the Freight image tag. It merges `devConfigurationPath` as the base with `deploymentOverlayPath` from deployment Git as the override, writes the result to `outputPath`, and then updates the literal `valuesMapping.tagPath` with the selected image tag. These paths may contain the `name` placeholder, which the chart replaces with the normalized component name.
+
+When `generationEnabled` is `false`, the clone and merge steps are omitted. `outputPath` must already exist at the deployment Git Freight commit, and the Stage still updates its image tag. Missing tags or configured files fail the promotion before any commit or push.
+
+Output paths must be unique among enabled components. All configuration paths must be relative workspace paths without `..` traversal.
+
+All component changes are committed together and pushed without force. The default branch is a literal Kargo expression:
+
+```yaml
+pipeline:
+  stages:
+    prepareRelease:
+      releaseBranch: release/${{ ctx.targetFreight.name }}
+```
+
+The commit message records the Freight name, deployment commit, and every enabled component image tag.
+
 ## Release Sources
 
 The Warehouse can create Freight from:
@@ -147,7 +196,7 @@ Enable at least one component or the deployment Git subscription before expectin
 
 ## Deployment Git Branches
 
-`sources.deploymentGit.branches.source` is both the Warehouse-watched branch and the future release branch base.
+`sources.deploymentGit.branches.source` is the Warehouse-watched branch. The deployment commit selected into Freight is the immutable base for the release branch.
 
 ```yaml
 sources:
@@ -222,16 +271,18 @@ generic-kargo-pipeline/
     |-- project-config.yaml
     |-- project.yaml
     |-- warehouse.yaml
-    `-- secrets/
-        |-- component-dev-git.yaml
-        `-- deployment-git.yaml
+    |-- secrets/
+    |   |-- component-dev-git.yaml
+    |   `-- deployment-git.yaml
+    `-- stages/
+        `-- prepare-release.yaml
 ```
 
 ## Future Resources
 
 Later chart iterations are expected to add:
 
-- Kargo `Stage` resources for `prepare-release`, `dev`, `integration`, `pre-production`, and `production`
+- Kargo `Stage` resources for `dev`, `integration`, `pre-production`, and `production`
 - native Kargo `spec.verification` configuration for Dev, Integration, and optionally Production
 - verification resources required by the installed Kargo version
 - Argo CD promotion steps for deployment stages

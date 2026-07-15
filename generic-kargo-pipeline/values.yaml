@@ -32,8 +32,13 @@ sources:
           url: https://gitlab.example.com/team/my-app.git
           username: ""
           password: ""
-        configuration:
-          path: src/main/resources/values.yaml
+
+      # The prepare-release Stage creates or updates this component's deployment file.
+      releaseConfiguration:
+        generationEnabled: true
+        devConfigurationPath: src/main/resources/Main/dev-configuration.yaml
+        deploymentOverlayPath: configurations/components/name/kargo/config.yaml
+        outputPath: configurations/components/name/base/config.yaml
 
       valuesMapping:
         tagPath: image.tag
@@ -69,7 +74,7 @@ pipeline:
     prepareRelease:
       name: prepare-release
       autoPromotionEnabled: true
-      releaseBranch: release/${{ imageFrom(vars.imageRepository).Tag }}
+      releaseBranch: release/${{ ctx.targetFreight.name }}
 
     dev:
       name: dev

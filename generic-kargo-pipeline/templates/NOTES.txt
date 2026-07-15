@@ -12,3 +12,8 @@ WARNING:
 The Kargo Warehouse currently has no active subscriptions.
 Enable at least one component or the deployment Git subscription before expecting Freight creation.
 {{- end }}
+{{- if not .Values.sources.deploymentGit.subscription.enabled }}
+WARNING:
+The prepare-release Stage requires a deployment Git commit in Freight.
+Enable sources.deploymentGit.subscription before promoting Freight to prepare-release.
+{{- end }}
