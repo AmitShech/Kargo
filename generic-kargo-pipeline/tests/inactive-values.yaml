@@ -1,0 +1,8 @@
+analysisTemplates:
+  - name: future-job
+    type: job
+    target: stage
+    retryAmount: 0
+    timeout: 10m
+    ttlAfterFinished: 1h
+    mode: blocking

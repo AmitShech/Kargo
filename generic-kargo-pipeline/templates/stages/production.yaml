@@ -1,0 +1,110 @@
+{{- $stage := .Values.pipeline.stages.production -}}
+{{- $revision := include "generic-kargo-pipeline.kargoExpression" "freightMetadata(ctx.targetFreight.name)['release-commit']" -}}
+apiVersion: kargo.akuity.io/v1alpha1
+kind: Stage
+metadata:
+  name: {{ include "generic-kargo-pipeline.normalizeName" $stage.name | quote }}
+  labels:
+    {{- include "generic-kargo-pipeline.labels" . | nindent 4 }}
+    {{- include "generic-kargo-pipeline.applicationLabels" . | nindent 4 }}
+spec:
+  requestedFreight:
+    - origin: { kind: Warehouse, name: {{ include "generic-kargo-pipeline.normalizeName" .Values.warehouse.name | quote }} }
+      sources:
+        stages: [{{ include "generic-kargo-pipeline.normalizeName" .Values.pipeline.stages.preProduction.name | quote }}]
+        autoPromotionOptions: { selectionPolicy: {{ $stage.freightSelectionPolicy | quote }} }
+  promotionTemplate:
+    spec:
+      steps:
+{{ include "generic-kargo-pipeline.tagPolicySteps" (dict "stageKey" "production" "stage" $stage "components" .Values.sources.components) | nindent 8 }}
+        {{- if .Values.pipeline.stages.preProduction.gitLab.enabled }}
+        - uses: http
+          as: verify-prepared-mr-revision
+          retry: { errorThreshold: 3 }
+          config:
+            method: GET
+            url: {{ include "generic-kargo-pipeline.kargoExpression" (printf "sprintf(%q, freightMetadata(ctx.targetFreight.name)['gitlab-api-project'], freightMetadata(ctx.targetFreight.name)['gitlab-mr-iid'])" (printf "%s/api/v4/projects/%%s/merge_requests/%%s" (trimSuffix "/" .Values.services.gitLab.endpoint))) | quote }}
+            headers:
+{{ include "generic-kargo-pipeline.promotionAuthHeaders" (dict "name" "gitLab" "service" .Values.services.gitLab) | nindent 14 }}
+            successExpression: response.status == 200 && response.body.sha == {{ include "generic-kargo-pipeline.kargoExpression" "freightMetadata(ctx.targetFreight.name)['gitlab-expected-revision']" | squote }} && response.body.state in ['opened', 'merged'] && response.body.has_conflicts != true
+            failureExpression: response.status >= 400 || response.body.state == 'closed' || response.body.has_conflicts == true || response.body.sha != {{ include "generic-kargo-pipeline.kargoExpression" "freightMetadata(ctx.targetFreight.name)['gitlab-expected-revision']" | squote }}
+            outputs:
+              - { name: state, fromExpression: response.body.state }
+              - { name: sha, fromExpression: response.body.sha }
+              - { name: hasConflicts, fromExpression: response.body.has_conflicts }
+        - uses: git-merge-pr
+          as: merge-prepared-mr
+          if: {{ include "generic-kargo-pipeline.kargoExpression" "outputs['verify-prepared-mr-revision'].state == 'opened'" | quote }}
+          config:
+            repoURL: {{ .Values.sources.chartGit.repository.url | quote }}
+            provider: gitlab
+            prNumber: {{ include "generic-kargo-pipeline.kargoExpression" "int(freightMetadata(ctx.targetFreight.name)['gitlab-mr-iid'])" | quote }}
+            mergeMethod: merge
+            wait: false
+        - uses: http
+          as: verify-production-branch-contains-tested-commit
+          retry: { timeout: 2m }
+          config:
+            method: GET
+            url: {{ include "generic-kargo-pipeline.kargoExpression" (printf "sprintf(%q, freightMetadata(ctx.targetFreight.name)['gitlab-api-project'], freightMetadata(ctx.targetFreight.name)['release-commit'])" (printf "%s/api/v4/projects/%%s/repository/commits/%%s/refs?type=branch" (trimSuffix "/" .Values.services.gitLab.endpoint))) | quote }}
+            headers:
+{{ include "generic-kargo-pipeline.promotionAuthHeaders" (dict "name" "gitLab" "service" .Values.services.gitLab) | nindent 14 }}
+            successExpression: response.status == 200 && any(response.body, #.type == 'branch' && #.name == {{ .Values.sources.chartGit.branches.production | squote }})
+            failureExpression: response.status >= 400
+        {{- end }}
+        - uses: git-clone
+          as: verify-production-contains-tested-commit
+          config:
+            repoURL: {{ .Values.sources.chartGit.repository.url | quote }}
+            checkout:
+              - commit: {{ $revision | quote }}
+                path: ./production
+        - uses: argocd-update
+          as: deploy-exact-tested-commit
+          config:
+            apps:
+              - name: {{ $stage.argocd.applicationName | quote }}
+                sources:
+                  - repoURL: {{ .Values.sources.chartGit.repository.url | quote }}
+                    desiredRevision: {{ $revision | quote }}
+                    updateTargetRevision: true
+        {{- if and (not $stage.verification.enabled) (default false $stage.outcomes.success.serviceNow.enabled) }}
+        - uses: http
+          as: production-success-servicenow
+          retry: { errorThreshold: 3, timeout: 2m }
+          config:
+            method: PATCH
+            url: {{ include "generic-kargo-pipeline.kargoExpression" (printf "sprintf(%q, freightMetadata(ctx.targetFreight.name)['servicenow-sys-id'])" (printf "%s/api/now/table/change_request/%%s" (trimSuffix "/" .Values.services.serviceNow.endpoint))) | quote }}
+            headers:
+              - { name: Content-Type, value: application/json }
+{{ include "generic-kargo-pipeline.promotionAuthHeaders" (dict "name" "serviceNow" "service" .Values.services.serviceNow) | nindent 14 }}
+            body: {{ toJson $stage.outcomes.success.serviceNow.fields | quote }}
+            successExpression: response.status >= 200 && response.status < 300
+            failureExpression: response.status >= 400
+        {{- end }}
+        {{- if (default false $stage.outcomes.failure.serviceNow.enabled) }}
+        - uses: http
+          as: production-promotion-failure-servicenow
+          if: {{ include "generic-kargo-pipeline.kargoExpression" "failure()" | quote }}
+          continueOnError: true
+          retry: { errorThreshold: 3, timeout: 2m }
+          config:
+            method: PATCH
+            url: {{ include "generic-kargo-pipeline.kargoExpression" (printf "sprintf(%q, freightMetadata(ctx.targetFreight.name)['servicenow-sys-id'])" (printf "%s/api/now/table/change_request/%%s" (trimSuffix "/" .Values.services.serviceNow.endpoint))) | quote }}
+            headers:
+              - { name: Content-Type, value: application/json }
+{{ include "generic-kargo-pipeline.promotionAuthHeaders" (dict "name" "serviceNow" "service" .Values.services.serviceNow) | nindent 14 }}
+            body: {{ toJson $stage.outcomes.failure.serviceNow.fields | quote }}
+            successExpression: response.status >= 200 && response.status < 300
+            failureExpression: response.status >= 400
+        {{- end }}
+{{ include "generic-kargo-pipeline.outcomeEmailSteps" (dict "root" . "stageKey" "production" "stage" $stage "includeSuccess" (not $stage.verification.enabled)) | nindent 8 }}
+  {{- if and $stage.verification.enabled $stage.verification.analysisTemplates }}
+  verification:
+    analysisTemplates:
+      - name: {{ printf "%s-production-dispatcher" (include "generic-kargo-pipeline.fullname" .) | include "generic-kargo-pipeline.normalizeName" | quote }}
+    args:
+      - { name: freightName, value: {{ include "generic-kargo-pipeline.kargoExpression" "ctx.targetFreight.name" | quote }} }
+      - { name: releaseCommit, value: {{ $revision | quote }} }
+      - { name: serviceNowSysId, value: {{ include "generic-kargo-pipeline.kargoExpression" "freightMetadata(ctx.targetFreight.name)['servicenow-sys-id'] ?? ''" | quote }} }
+  {{- end }}

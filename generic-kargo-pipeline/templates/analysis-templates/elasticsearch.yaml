@@ -1,0 +1,43 @@
+{{- range $definition := .Values.analysisTemplates }}{{- $active := false -}}{{- range $stage := values $.Values.pipeline.stages -}}{{- range $reference := default list (dig "verification" "analysisTemplates" list $stage) -}}{{- if and $reference.enabled (eq $reference.name $definition.name) -}}{{- $active = true -}}{{- end -}}{{- end -}}{{- end -}}{{- if and $active (eq $definition.type "elasticsearch") }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: {{ $definition.name | quote }}
+  labels: {{- include "generic-kargo-pipeline.labels" $ | nindent 4 }}
+    {{- include "generic-kargo-pipeline.applicationLabels" $ | nindent 4 }}
+  annotations: { generic-kargo-pipeline/type: elasticsearch }
+spec:
+  args:
+    - { name: freightName, value: "" }
+    - { name: releaseCommit, value: "" }
+    - { name: verificationStartedAt, value: "" }
+    {{- if ne (default "none" $.Values.services.elasticsearch.authentication.type) "none" }}
+    - name: authHeaderName
+      valueFrom: { secretKeyRef: { name: {{ include "generic-kargo-pipeline.httpServiceSecretName" "elasticsearch" | quote }}, key: headerName } }
+    - name: authHeaderValue
+      valueFrom: { secretKeyRef: { name: {{ include "generic-kargo-pipeline.httpServiceSecretName" "elasticsearch" | quote }}, key: headerValue } }
+    {{- end }}
+  metrics:
+  {{ range $check := $definition.checks }}
+    {{- $filters := mergeOverwrite (deepCopy (default dict $.Values.services.elasticsearch.filters)) (default dict $definition.filters) (default dict $check.filters) -}}
+    {{- $clauses := list $check.query -}}
+    {{- range $key := keys $filters | sortAlpha }}{{- $clauses = append $clauses (dict "term" (dict $key (get $filters $key))) }}{{- end -}}
+    {{- $range := dict $.Values.services.elasticsearch.timeField (dict "gte" "{{ args.verificationStartedAt }}" "lte" "now") -}}
+    {{- $clauses = append $clauses (dict "range" $range) -}}
+{{ "\n    " }}- name: {{ $check.name | quote }}
+      interval: {{ default "1m" $check.interval | quote }}
+      failureLimit: {{ add1 (default 0 $check.allowedFailedMeasurements) }}
+      successCondition: {{ printf "result.statusCode == 200 && asInt(jsonPath(result.body, '$.hits.total.value')) <= %v" (default 0 $check.maximumCount) | quote }}
+      provider:
+        web:
+          url: {{ printf "%s/%s/_search" (trimSuffix "/" $.Values.services.elasticsearch.endpoint) (default $.Values.services.elasticsearch.index $check.index) | quote }}
+          method: POST
+          headers:
+            - { key: Content-Type, value: application/json }
+            {{- if ne (default "none" $.Values.services.elasticsearch.authentication.type) "none" }}
+            - { key: "{{ `{{ args.authHeaderName }}` }}", value: "{{ `{{ args.authHeaderValue }}` }}" }
+            {{- end }}
+          body: {{ toJson (dict "query" (dict "bool" (dict "filter" $clauses))) | quote }}
+  {{- end }}
+{{ end }}{{ end }}

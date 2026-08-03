@@ -12,7 +12,7 @@ generic-kargo-pipeline/templates/warehouse.yaml
 
 The Warehouse renders:
 
-- one deployment Git subscription when `sources.deploymentGit.subscription.enabled` is true
+- one chart Git subscription when `sources.chartGit.subscription.enabled` is true
 - one image subscription per enabled component
 
 Current default Warehouse values:
@@ -78,7 +78,7 @@ sources:
       releaseConfiguration:
         generationEnabled: true
         devConfigurationPath: src/main/resources/values.yaml
-        deploymentOverlayPath: values/overrides/main.yaml
+        chartOverlayPath: values/overrides/main.yaml
         outputPath: values/releases/main.yaml
       valuesMapping:
         tagPath: image.tag
@@ -188,7 +188,7 @@ Deployment Git values live under:
 
 ```yaml
 sources:
-  deploymentGit:
+  chartGit:
     repository:
       url: https://gitlab.example.com/team/my-app-deployment.git
       username: ""
@@ -212,7 +212,7 @@ sources:
         environment: values/${{ vars.environment }}.yaml
 ```
 
-The Warehouse Git subscription uses `sources.deploymentGit.branches.source`. The exact deployment commit selected into Freight becomes the immutable base for the generated release branch.
+The Warehouse Git subscription uses `sources.chartGit.branches.source`. The exact chart commit selected into Freight becomes the immutable base for the generated release branch.
 
 Only commits matching `includePaths` should count as configuration changes. Pipeline-generated paths should be excluded to avoid recursive Freight creation.
 

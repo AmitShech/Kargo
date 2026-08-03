@@ -1,0 +1,74 @@
+{{- $stage := .Values.pipeline.stages.integration -}}
+{{- $definitions := dict -}}{{- range .Values.analysisTemplates }}{{- $_ := set $definitions .name . -}}{{- end -}}
+{{- $active := list -}}{{- range $stage.verification.analysisTemplates }}{{- $d := get $definitions .name }}{{- if and .enabled $d (eq $d.target "components") (or (eq $d.type "prometheus") (eq $d.type "elasticsearch")) }}{{- $active = append $active $d }}{{- end }}{{- end -}}
+{{- if and $stage.verification.enabled $active }}
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: {{ printf "%s-integration-dispatcher" (include "generic-kargo-pipeline.fullname" .) | include "generic-kargo-pipeline.normalizeName" | quote }}
+  labels: {{- include "generic-kargo-pipeline.labels" . | nindent 4 }}
+    {{- include "generic-kargo-pipeline.applicationLabels" . | nindent 4 }}
+spec:
+  args:
+    - name: freightName
+    - name: verificationStartedAt
+    - name: initialDelay
+    - name: duration
+    - name: interval
+    - name: allowedFailedMeasurements
+    - name: dryRunAll
+  metrics:
+    - name: dispatch
+      initialDelay: {{ $stage.verification.initialDelay | quote }}
+      provider:
+        job:
+          spec:
+            backoffLimit: 0
+            template:
+              spec:
+                serviceAccountName: {{ printf "%s-dispatcher" (include "generic-kargo-pipeline.fullname" .) | include "generic-kargo-pipeline.normalizeName" | quote }}
+                restartPolicy: Never
+                containers:
+                  - name: dispatcher
+                    image: {{ printf "%s:%s" .Values.global.dispatcher.image.repository .Values.global.dispatcher.image.tag | quote }}
+                    imagePullPolicy: {{ .Values.global.dispatcher.image.pullPolicy | quote }}
+                    env:
+                      - name: DISPATCHER_CONFIG
+                        {{- $entries := list -}}
+                        {{- range $definition := $active -}}
+                          {{- range $component := $.Values.sources.components -}}{{- if $component.enabled -}}
+                            {{- $target := dict -}}{{- range $candidate := default list $definition.targets -}}{{- if eq $candidate.component $component.name -}}{{- $target = $candidate -}}{{- end -}}{{- end -}}
+                            {{- $checks := list -}}
+                            {{- if eq $definition.type "prometheus" -}}
+                              {{- range $metric := $definition.metrics -}}
+                                {{- $effectiveInterval := default $.Values.pipeline.stages.integration.verification.interval $metric.interval -}}
+                                {{- $count := include "generic-kargo-pipeline.measurementCount" (dict "scope" (printf "analysisTemplates.%s.metrics.%s" $definition.name $metric.name) "duration" $.Values.pipeline.stages.integration.verification.duration "interval" $effectiveInterval "max" (default 1000 $.Values.pipeline.stages.integration.verification.maxMeasurements)) | int -}}
+                                {{- $labels := mergeOverwrite (deepCopy (default dict $.Values.services.prometheus.labels)) (default dict $definition.labels) (default dict $component.verification.labels) (default dict $target.labels) (default dict $metric.labels) -}}
+                                {{- $parts := list -}}{{- range $key := keys $labels | sortAlpha -}}{{- $parts = append $parts (printf "%s=%q" $key (printf "%v" (get $labels $key))) -}}{{- end -}}
+                                {{- $query := replace "{{ labels }}" (join "," $parts) $metric.query | replace "{{ window }}" (default "5m" $metric.window) -}}
+                                {{- $tolerance := $.Values.pipeline.stages.integration.verification.allowedFailedMeasurements -}}{{- if hasKey $metric "allowedFailedMeasurements" -}}{{- $tolerance = $metric.allowedFailedMeasurements -}}{{- end -}}
+                                {{- $mode := default $definition.mode $metric.mode -}}{{- if $.Values.pipeline.stages.integration.verification.dryRunAll -}}{{- $mode = "dry-run" -}}{{- end -}}
+                                {{- $checks = append $checks (dict "name" $metric.name "query" $query "interval" $effectiveInterval "count" $count "failureLimit" (add1 (int $tolerance)) "mode" $mode "minimum" $metric.minimum "maximum" $metric.maximum) -}}
+                              {{- end -}}
+                            {{- else -}}
+                              {{- range $check := $definition.checks -}}
+                                {{- $effectiveInterval := default $.Values.pipeline.stages.integration.verification.interval $check.interval -}}
+                                {{- $count := include "generic-kargo-pipeline.measurementCount" (dict "scope" (printf "analysisTemplates.%s.checks.%s" $definition.name $check.name) "duration" $.Values.pipeline.stages.integration.verification.duration "interval" $effectiveInterval "max" (default 1000 $.Values.pipeline.stages.integration.verification.maxMeasurements)) | int -}}
+                                {{- $filters := mergeOverwrite (deepCopy (default dict $.Values.services.elasticsearch.filters)) (default dict $definition.filters) (default dict $component.verification.filters) (default dict $target.filters) (default dict $check.filters) -}}
+                                {{- $tolerance := $.Values.pipeline.stages.integration.verification.allowedFailedMeasurements -}}{{- if hasKey $check "allowedFailedMeasurements" -}}{{- $tolerance = $check.allowedFailedMeasurements -}}{{- end -}}
+                                {{- $mode := default $definition.mode $check.mode -}}{{- if $.Values.pipeline.stages.integration.verification.dryRunAll -}}{{- $mode = "dry-run" -}}{{- end -}}
+                                {{- $checks = append $checks (dict "name" $check.name "query" $check.query "filters" $filters "index" (default (default $.Values.services.elasticsearch.index $target.index) $check.index) "timeField" $.Values.services.elasticsearch.timeField "interval" $effectiveInterval "count" $count "failureLimit" (add1 (int $tolerance)) "mode" $mode "maximumCount" (default 0 $check.maximumCount)) -}}
+                              {{- end -}}
+                            {{- end -}}
+                            {{- $dryRun := list -}}{{- if $.Values.pipeline.stages.integration.verification.dryRunAll -}}{{- $dryRun = list (dict "metricName" "*") -}}{{- else -}}{{- range $renderedCheck := $checks -}}{{- if eq $renderedCheck.mode "dry-run" -}}{{- $dryRun = append $dryRun (dict "metricName" $renderedCheck.name) -}}{{- end -}}{{- end -}}{{- end -}}
+                            {{- $entries = append $entries (dict "name" (printf "%s-%s" $component.name $definition.name) "component" $component.name "provider" $definition.type "template" $definition.name "retryAmount" $definition.retryAmount "checks" $checks "dryRun" $dryRun "args" (dict "freightName" "{{ args.freightName }}" "verificationStartedAt" "{{ args.verificationStartedAt }}" "componentName" $component.name)) -}}
+                          {{- end -}}{{- end -}}
+                        {{- end -}}
+{{ "\n" }}                        value: {{ toJson (dict "parentName" "{{ args.freightName }}-integration" "verificationStartedAt" "{{ args.verificationStartedAt }}" "initialDelay" $stage.verification.initialDelay "duration" $stage.verification.duration "interval" $stage.verification.interval "maxMeasurements" (default 1000 $stage.verification.maxMeasurements) "parallelism" (len $.Values.sources.components) "changedOnly" false "dryRunAll" $stage.verification.dryRunAll "components" $entries "mail" (dict "endpoint" $.Values.services.mail.endpoint "recipients" $.Values.pipeline.notifications.email.recipients "defaults" $.Values.pipeline.notifications.email.defaults "outcomes" $stage.outcomes)) | quote }}
+                      {{- if ne (default "none" $.Values.services.mail.authentication.type) "none" }}
+                      - name: MAIL_AUTH_HEADER_NAME
+                        valueFrom: { secretKeyRef: { name: {{ include "generic-kargo-pipeline.httpServiceSecretName" "mail" | quote }}, key: headerName } }
+                      - name: MAIL_AUTH_HEADER_VALUE
+                        valueFrom: { secretKeyRef: { name: {{ include "generic-kargo-pipeline.httpServiceSecretName" "mail" | quote }}, key: headerValue } }
+                      {{- end }}
+{{- end }}

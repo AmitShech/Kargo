@@ -40,15 +40,15 @@ Promotion policies are generated from `pipeline.stages`:
 
 ```yaml
 promotionPolicies:
-  - stage: prepare-release
+  - stageSelector: { name: prepare-release }
     autoPromotionEnabled: true
-  - stage: dev
+  - stageSelector: { name: dev }
     autoPromotionEnabled: true
-  - stage: integration
+  - stageSelector: { name: integration }
     autoPromotionEnabled: true
-  - stage: pre-production
+  - stageSelector: { name: pre-production }
     autoPromotionEnabled: true
-  - stage: production
+  - stageSelector: { name: production }
     autoPromotionEnabled: false
 ```
 
@@ -91,7 +91,7 @@ global:
 Reusable helpers must be preserved for future Stage templates:
 
 ```text
-generic-kargo-pipeline.deploymentGitSecretName
+generic-kargo-pipeline.chartGitSecretName
 generic-kargo-pipeline.componentDevGitSecretName
 generic-kargo-pipeline.normalizeName
 generic-kargo-pipeline.projectName
@@ -125,7 +125,7 @@ Deployment Git credentials come from:
 
 ```yaml
 sources:
-  deploymentGit:
+  chartGit:
     repository:
       url: https://gitlab.example.com/team/my-app-deployment.git
       username: ""
@@ -181,7 +181,7 @@ stringData:
 
 - top-level `application`
 - top-level `integrations`
-- `sources.deploymentGit.subscription.branch`
+- `sources.chartGit.subscription.branch`
 - old `chartGit` or `developersGit` fields
 - templated `valuesMapping.tagPath` values containing `{` or `}`
 - `image.repository`; the current image source field is `image.artifactory`
@@ -190,7 +190,7 @@ The schema keeps labels and annotations extensible while chart-owned structures 
 
 ## ProjectConfig API Fields To Verify Later
 
-Before installing into a real cluster, verify these fields against the installed Kargo version:
+Before installing into a real cluster, verify these fields against the installed Kargo version. Installation and live-cluster verification are consumer responsibilities; repository acceptance ends with schema validation, Helm rendering, and static rendered-resource assertions:
 
 - `ProjectConfig.spec.promotionPolicies[].stage`
 - `ProjectConfig.spec.promotionPolicies[].autoPromotionEnabled`

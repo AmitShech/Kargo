@@ -1,0 +1,218 @@
+{{- $stage := .Values.pipeline.stages.preProduction -}}
+{{- $freight := include "generic-kargo-pipeline.kargoExpression" "ctx.targetFreight.name" -}}
+{{- $gitLabApiProject := urlquery $stage.gitLab.projectPath -}}
+apiVersion: kargo.akuity.io/v1alpha1
+kind: Stage
+metadata:
+  name: {{ include "generic-kargo-pipeline.normalizeName" $stage.name | quote }}
+  labels:
+    {{- include "generic-kargo-pipeline.labels" . | nindent 4 }}
+    {{- include "generic-kargo-pipeline.applicationLabels" . | nindent 4 }}
+spec:
+  requestedFreight:
+    - origin: { kind: Warehouse, name: {{ include "generic-kargo-pipeline.normalizeName" .Values.warehouse.name | quote }} }
+      sources:
+        stages: [{{ include "generic-kargo-pipeline.normalizeName" .Values.pipeline.stages.integration.name | quote }}]
+        autoPromotionOptions: { selectionPolicy: {{ $stage.freightSelectionPolicy | quote }} }
+  promotionTemplate:
+    spec:
+      steps:
+{{ include "generic-kargo-pipeline.tagPolicySteps" (dict "stageKey" "pre-production" "stage" $stage "components" .Values.sources.components) | nindent 8 }}
+        {{- if $stage.ai.enabled }}
+        - uses: http
+          as: generate-ai-summary
+          continueOnError: true
+          retry: { errorThreshold: 3 }
+          config:
+            method: POST
+            url: {{ .Values.services.ai.endpoint | quote }}
+            headers:
+              - { name: Content-Type, value: application/json }
+{{ include "generic-kargo-pipeline.promotionAuthHeaders" (dict "name" "ai" "service" .Values.services.ai) | nindent 14 }}
+            body: {{ include "generic-kargo-pipeline.kargoExpression" (printf "quote({freight: ctx.targetFreight.name, system: %q, releaseCommit: freightMetadata(ctx.targetFreight.name)['release-commit'], changedComponents: freightMetadata(ctx.targetFreight.name)['changed-components'], prompt: %q, schedule: %q})" .Values.global.system.displayName $stage.ai.prompt (toJson $stage.ai.schedule)) | quote }}
+            successExpression: >-
+              response.status >= 200 && response.status < 300 &&
+              response.body.title != '' && response.body.description != '' &&
+              response.body.reason != '' && response.body.impact != '' &&
+              response.body.startTime.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}T') &&
+              response.body.endTime.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}T') &&
+              response.body.endTime > response.body.startTime &&
+              time.Parse(time.RFC3339, response.body.startTime).Format('15:04') == {{ $stage.ai.schedule.startTime | squote }} &&
+              time.Parse(time.RFC3339, response.body.startTime).Format('Z07:00') == time.Parse(time.RFC3339, response.body.startTime).In(time.LoadLocation({{ $stage.ai.schedule.timezone | squote }})).Format('Z07:00') &&
+              time.Parse(time.RFC3339, response.body.endTime).Format('Z07:00') == time.Parse(time.RFC3339, response.body.endTime).In(time.LoadLocation({{ $stage.ai.schedule.timezone | squote }})).Format('Z07:00') &&
+              time.Parse(time.RFC3339, response.body.endTime).Sub(time.Parse(time.RFC3339, response.body.startTime)).Minutes() == {{ $stage.ai.schedule.durationMinutes }} &&
+              !(time.Parse(time.RFC3339, response.body.startTime).Weekday().String() in {{ toJson $stage.ai.schedule.excludedWeekdays }})
+            failureExpression: response.status >= 400
+            outputs:
+              {{- range $field := $stage.ai.requiredFields }}
+              - name: {{ $field | quote }}
+                fromExpression: {{ printf "response.body.%s" $field | quote }}
+              {{- end }}
+        {{- end }}
+        - uses: compose-output
+          as: release-content
+          config:
+            {{- if $stage.ai.enabled }}
+            title: {{ include "generic-kargo-pipeline.kargoExpression" "outputs['generate-ai-summary']?.title ?? '[HUMAN REVIEW] Release ' + ctx.targetFreight.name" | quote }}
+            description: {{ include "generic-kargo-pipeline.kargoExpression" "outputs['generate-ai-summary']?.description ?? 'Deterministic fallback generated from immutable Freight evidence; human review required.'" | quote }}
+            reason: {{ include "generic-kargo-pipeline.kargoExpression" "outputs['generate-ai-summary']?.reason ?? 'Promote the tested immutable release candidate; human review required.'" | quote }}
+            impact: {{ include "generic-kargo-pipeline.kargoExpression" "outputs['generate-ai-summary']?.impact ?? 'Impact was not enriched because AI output was unavailable or invalid; human review required.'" | quote }}
+            startTime: {{ include "generic-kargo-pipeline.kargoExpression" (printf "outputs['generate-ai-summary']?.startTime ?? (time.Now().AddDate(0, 0, %d).Format('2006-01-02') + 'T%s:00' + time.Now().Format('Z07:00'))" (int $stage.ai.schedule.workingDaysAhead) $stage.ai.schedule.startTime) | quote }}
+            endTime: {{ include "generic-kargo-pipeline.kargoExpression" (printf "outputs['generate-ai-summary']?.endTime ?? time.Parse(time.RFC3339, (time.Now().AddDate(0, 0, %d).Format('2006-01-02') + 'T%s:00' + time.Now().Format('Z07:00'))).Add(%d * time.Minute).Format(time.RFC3339)" (int $stage.ai.schedule.workingDaysAhead) $stage.ai.schedule.startTime (int $stage.ai.schedule.durationMinutes)) | quote }}
+            enrichment: {{ include "generic-kargo-pipeline.kargoExpression" "outputs['generate-ai-summary']?.title != nil ? 'ai' : 'fallback'" | quote }}
+            {{- else }}
+            title: {{ default (printf "[HUMAN REVIEW] Release %s" .Release.Name) $stage.gitLab.fixedFields.title | quote }}
+            description: {{ default "Release content is values-defined; human review required." $stage.gitLab.fixedFields.description | quote }}
+            reason: ""
+            impact: ""
+            startTime: ""
+            endTime: ""
+            enrichment: fixed
+            {{- end }}
+        {{- if $stage.ai.enabled }}
+        - uses: fail
+          as: reject-invalid-ai-release-content
+          if: {{ include "generic-kargo-pipeline.kargoExpression" "outputs['release-content'].enrichment == 'fallback'" | quote }}
+          config:
+            message: AI did not return a valid release description and working-day change window; external administration was not created
+        {{- end }}
+        {{- if $stage.serviceNow.enabled }}
+        - uses: http
+          as: find-existing-servicenow
+          retry: { errorThreshold: 3, timeout: 2m }
+          config:
+            method: GET
+            url: {{ include "generic-kargo-pipeline.kargoExpression" (printf "sprintf(%q, ctx.targetFreight.name)" (printf "%s/api/now/table/change_request?sysparm_query=correlation_id=%%s&sysparm_limit=1" (trimSuffix "/" .Values.services.serviceNow.endpoint))) | quote }}
+            headers:
+{{ include "generic-kargo-pipeline.promotionAuthHeaders" (dict "name" "serviceNow" "service" .Values.services.serviceNow) | nindent 14 }}
+            successExpression: response.status >= 200 && response.status < 300 && response.body.result != nil
+            failureExpression: response.status >= 400
+            outputs:
+              - { name: title, fromExpression: "len(response.body.result) > 0 ? (response.body.result[0].short_description ?? response.body.result[0].description) : ''" }
+              - { name: number, fromExpression: "len(response.body.result) > 0 ? response.body.result[0].number : ''" }
+              - { name: url, fromExpression: "len(response.body.result) > 0 ? (response.body.result[0].url ?? response.body.result[0].link ?? '') : ''" }
+              - { name: sys_id, fromExpression: "len(response.body.result) > 0 ? response.body.result[0].sys_id : ''" }
+        - uses: http
+          as: create-or-reuse-servicenow
+          if: {{ include "generic-kargo-pipeline.kargoExpression" "outputs['find-existing-servicenow'].sys_id == ''" | quote }}
+          retry: { errorThreshold: 3 }
+          config:
+            method: POST
+            url: {{ printf "%s/api/now/table/change_request" (trimSuffix "/" .Values.services.serviceNow.endpoint) | quote }}
+            headers:
+              - { name: Content-Type, value: application/json }
+              - { name: Idempotency-Key, value: {{ $freight | quote }} }
+{{ include "generic-kargo-pipeline.promotionAuthHeaders" (dict "name" "serviceNow" "service" .Values.services.serviceNow) | nindent 14 }}
+            {{- $fields := list "correlation_id: ctx.targetFreight.name" -}}
+            {{- if $stage.ai.enabled -}}{{- range $field := list "title" "description" "reason" "impact" "startTime" "endTime" -}}{{- $destination := default $field (get $stage.serviceNow.aiFieldMapping $field) -}}{{- if not (hasKey $stage.serviceNow.fixedFields $destination) -}}{{- $fields = append $fields (printf "%s: outputs['release-content'].%s" $destination $field) -}}{{- end -}}{{- end -}}{{- end -}}
+            {{- range $name, $value := $stage.serviceNow.fixedFields -}}{{- $fields = append $fields (printf "%s: %s" $name (toJson $value)) -}}{{- end }}
+            body: {{ include "generic-kargo-pipeline.kargoExpression" (printf "quote({%s})" (join ", " $fields)) | quote }}
+            successExpression: response.status >= 200 && response.status < 300 && response.body.result.sys_id != '' && response.body.result.number != ''
+            failureExpression: response.status >= 400
+            outputs:
+              - { name: title, fromExpression: "response.body.result.short_description ?? response.body.result.description" }
+              - { name: number, fromExpression: response.body.result.number }
+              - { name: url, fromExpression: "response.body.result.url ?? response.body.result.link" }
+              - { name: sys_id, fromExpression: response.body.result.sys_id }
+        - uses: compose-output
+          as: servicenow-record
+          config:
+            title: {{ include "generic-kargo-pipeline.kargoExpression" "outputs['find-existing-servicenow'].sys_id != '' ? outputs['find-existing-servicenow'].title : outputs['create-or-reuse-servicenow'].title" | quote }}
+            number: {{ include "generic-kargo-pipeline.kargoExpression" "outputs['find-existing-servicenow'].sys_id != '' ? outputs['find-existing-servicenow'].number : outputs['create-or-reuse-servicenow'].number" | quote }}
+            url: {{ include "generic-kargo-pipeline.kargoExpression" "outputs['find-existing-servicenow'].sys_id != '' ? outputs['find-existing-servicenow'].url : outputs['create-or-reuse-servicenow'].url" | quote }}
+            sys_id: {{ include "generic-kargo-pipeline.kargoExpression" "outputs['find-existing-servicenow'].sys_id != '' ? outputs['find-existing-servicenow'].sys_id : outputs['create-or-reuse-servicenow'].sys_id" | quote }}
+        {{- end }}
+        {{- if $stage.gitLab.enabled }}
+        - uses: http
+          as: find-existing-release-mr
+          retry: { errorThreshold: 3, timeout: 2m }
+          config:
+            method: GET
+            url: {{ include "generic-kargo-pipeline.kargoExpression" (printf "sprintf(%q, %q, freightMetadata(ctx.targetFreight.name)['release-branch'], %q)" (printf "%s/api/v4/projects/%%s/merge_requests?state=all&source_branch=%%s&target_branch=%%s&order_by=updated_at&sort=desc" (trimSuffix "/" .Values.services.gitLab.endpoint)) $gitLabApiProject .Values.sources.chartGit.branches.production) | quote }}
+            headers:
+{{ include "generic-kargo-pipeline.promotionAuthHeaders" (dict "name" "gitLab" "service" .Values.services.gitLab) | nindent 14 }}
+            successExpression: response.status >= 200 && response.status < 300 && response.body != nil
+            failureExpression: response.status >= 400
+            outputs:
+              - { name: iid, fromExpression: "len(response.body) > 0 ? string(response.body[0].iid) : ''" }
+              - { name: url, fromExpression: "len(response.body) > 0 ? response.body[0].web_url : ''" }
+              - { name: title, fromExpression: "len(response.body) > 0 ? response.body[0].title : ''" }
+              - { name: sha, fromExpression: "len(response.body) > 0 ? response.body[0].sha : ''" }
+              - { name: state, fromExpression: "len(response.body) > 0 ? response.body[0].state : ''" }
+        - uses: fail
+          as: reject-stale-release-mr
+          if: {{ include "generic-kargo-pipeline.kargoExpression" "outputs['find-existing-release-mr'].iid != '' && outputs['find-existing-release-mr'].sha != freightMetadata(ctx.targetFreight.name)['release-commit']" | quote }}
+          config:
+            message: Existing release merge request does not point to the immutable tested commit
+        - uses: fail
+          as: reject-closed-release-mr
+          if: {{ include "generic-kargo-pipeline.kargoExpression" "outputs['find-existing-release-mr'].state == 'closed'" | quote }}
+          config:
+            message: Existing release merge request was closed without merge
+        - uses: git-open-pr
+          as: create-or-reuse-release-mr
+          if: {{ include "generic-kargo-pipeline.kargoExpression" "outputs['find-existing-release-mr'].iid == ''" | quote }}
+          config:
+            repoURL: {{ .Values.sources.chartGit.repository.url | quote }}
+            provider: gitlab
+            sourceBranch: {{ include "generic-kargo-pipeline.kargoExpression" "freightMetadata(ctx.targetFreight.name)['release-branch']" | quote }}
+            targetBranch: {{ .Values.sources.chartGit.branches.production | quote }}
+            {{- if $stage.ai.enabled }}
+            title: {{ include "generic-kargo-pipeline.kargoExpression" "outputs['release-content'].title" | quote }}
+            description: {{ include "generic-kargo-pipeline.kargoExpression" "outputs['release-content'].description" | quote }}
+            {{- else }}
+            title: {{ $stage.gitLab.fixedFields.title | quote }}
+            description: {{ $stage.gitLab.fixedFields.description | quote }}
+            {{- end }}
+        - uses: compose-output
+          as: gitlab-record
+          config:
+            iid: {{ include "generic-kargo-pipeline.kargoExpression" "outputs['find-existing-release-mr'].iid != '' ? outputs['find-existing-release-mr'].iid : string(outputs['create-or-reuse-release-mr'].pr.id)" | quote }}
+            url: {{ include "generic-kargo-pipeline.kargoExpression" "outputs['find-existing-release-mr'].iid != '' ? outputs['find-existing-release-mr'].url : outputs['create-or-reuse-release-mr'].pr.url" | quote }}
+            title: {{ include "generic-kargo-pipeline.kargoExpression" "outputs['find-existing-release-mr'].iid != '' ? outputs['find-existing-release-mr'].title : outputs['release-content'].title" | quote }}
+            state: {{ include "generic-kargo-pipeline.kargoExpression" "outputs['find-existing-release-mr'].iid != '' ? outputs['find-existing-release-mr'].state : 'opened'" | quote }}
+        - uses: http
+          as: enforce-release-mr-lifecycle
+          if: {{ include "generic-kargo-pipeline.kargoExpression" "outputs['gitlab-record'].state == 'opened'" | quote }}
+          retry: { errorThreshold: 3, timeout: 2m }
+          config:
+            method: PUT
+            url: {{ include "generic-kargo-pipeline.kargoExpression" (printf "sprintf(%q, %q, outputs['gitlab-record'].iid)" (printf "%s/api/v4/projects/%%s/merge_requests/%%s" (trimSuffix "/" .Values.services.gitLab.endpoint)) $gitLabApiProject) | quote }}
+            headers:
+              - { name: Content-Type, value: application/json }
+{{ include "generic-kargo-pipeline.promotionAuthHeaders" (dict "name" "gitLab" "service" .Values.services.gitLab) | nindent 14 }}
+            body: {{ toJson (dict "squash" false "remove_source_branch" $stage.gitLab.mergeRequest.removeSourceBranchWhenMerged) | quote }}
+            successExpression: response.status >= 200 && response.status < 300 && response.body.squash == false
+            failureExpression: response.status >= 400
+        {{- end }}
+        - uses: set-metadata
+          as: record-administration
+          config:
+            updates:
+              - kind: Freight
+                name: {{ $freight | quote }}
+                values:
+                  administration-complete: "true"
+                  administration-mode: {{ ternary "external" "none" (or $stage.serviceNow.enabled $stage.gitLab.enabled) | quote }}
+                  external-administration-complete: {{ or $stage.serviceNow.enabled $stage.gitLab.enabled | quote }}
+                  ai-enabled: {{ $stage.ai.enabled | quote }}
+                  ai-content-source: {{ include "generic-kargo-pipeline.kargoExpression" "outputs['release-content'].enrichment" | quote }}
+                  servicenow-enabled: {{ $stage.serviceNow.enabled | quote }}
+                  gitlab-enabled: {{ $stage.gitLab.enabled | quote }}
+                  {{- if $stage.serviceNow.enabled }}
+                  servicenow-title: {{ include "generic-kargo-pipeline.kargoExpression" "outputs['servicenow-record'].title" | quote }}
+                  servicenow-number: {{ include "generic-kargo-pipeline.kargoExpression" "outputs['servicenow-record'].number" | quote }}
+                  servicenow-url: {{ include "generic-kargo-pipeline.kargoExpression" "outputs['servicenow-record'].url" | quote }}
+                  servicenow-sys-id: {{ include "generic-kargo-pipeline.kargoExpression" "outputs['servicenow-record'].sys_id" | quote }}
+                  servicenow-complete: "true"
+                  {{- end }}
+                  {{- if $stage.gitLab.enabled }}
+                  gitlab-mr-iid: {{ include "generic-kargo-pipeline.kargoExpression" "outputs['gitlab-record'].iid" | quote }}
+                  gitlab-mr-url: {{ include "generic-kargo-pipeline.kargoExpression" "outputs['gitlab-record'].url" | quote }}
+                  gitlab-mr-title: {{ include "generic-kargo-pipeline.kargoExpression" "outputs['gitlab-record'].title" | quote }}
+                  gitlab-project-path: {{ $stage.gitLab.projectPath | quote }}
+                  gitlab-api-project: {{ $gitLabApiProject | quote }}
+                  gitlab-expected-revision: {{ include "generic-kargo-pipeline.kargoExpression" "freightMetadata(ctx.targetFreight.name)['release-commit']" | quote }}
+                  gitlab-complete: "true"
+                  {{- end }}
+{{ include "generic-kargo-pipeline.outcomeEmailSteps" (dict "root" . "stageKey" "pre-production" "stage" $stage "includeSuccess" true) | nindent 8 }}

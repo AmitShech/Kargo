@@ -7,13 +7,18 @@
 {{- $hasEnabledComponents = true -}}
 {{- end }}
 {{- end }}
-{{- if and (not .Values.sources.deploymentGit.subscription.enabled) (not $hasEnabledComponents) }}
+{{- if and (not .Values.sources.chartGit.subscription.enabled) (not $hasEnabledComponents) }}
 WARNING:
 The Kargo Warehouse currently has no active subscriptions.
-Enable at least one component or the deployment Git subscription before expecting Freight creation.
+Enable at least one component or the chart Git subscription before expecting Freight creation.
 {{- end }}
-{{- if not .Values.sources.deploymentGit.subscription.enabled }}
+{{- if not .Values.sources.chartGit.subscription.enabled }}
 WARNING:
-The prepare-release Stage requires a deployment Git commit in Freight.
-Enable sources.deploymentGit.subscription before promoting Freight to prepare-release.
+The prepare-release Stage requires a chart Git commit in Freight.
+Enable sources.chartGit.subscription before promoting Freight to prepare-release.
+{{- end }}
+{{- if or .Values.pipeline.stages.dev.verification.enabled .Values.pipeline.stages.integration.verification.enabled }}
+EXTERNAL PREREQUISITE:
+The chart references dispatcher image {{ printf "%s:%s" .Values.global.dispatcher.image.repository .Values.global.dispatcher.image.tag }}.
+This Helm chart does not build, publish, or operate that image.
 {{- end }}

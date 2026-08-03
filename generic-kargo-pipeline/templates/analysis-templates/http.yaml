@@ -1,0 +1,34 @@
+{{- range $definition := .Values.analysisTemplates }}{{- $active := false -}}{{- range $stage := values $.Values.pipeline.stages -}}{{- range $reference := default list (dig "verification" "analysisTemplates" list $stage) -}}{{- if and $reference.enabled (eq $reference.name $definition.name) -}}{{- $active = true -}}{{- end -}}{{- end -}}{{- end -}}{{- if and $active (eq $definition.type "http") }}
+{{- $serviceName := default "" $definition.service -}}{{- $service := default dict (get $.Values.services $serviceName) -}}{{- $authType := default "none" (dig "authentication" "type" "none" $service) -}}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: {{ $definition.name | quote }}
+  labels: {{- include "generic-kargo-pipeline.labels" $ | nindent 4 }}
+    {{- include "generic-kargo-pipeline.applicationLabels" $ | nindent 4 }}
+  annotations: { generic-kargo-pipeline/type: http }
+spec:
+  args:
+    - { name: freightName, value: "" }
+    - { name: releaseCommit, value: "" }
+    {{- if ne $authType "none" }}
+    - name: authHeaderName
+      valueFrom: { secretKeyRef: { name: {{ include "generic-kargo-pipeline.httpServiceSecretName" $serviceName | quote }}, key: headerName } }
+    - name: authHeaderValue
+      valueFrom: { secretKeyRef: { name: {{ include "generic-kargo-pipeline.httpServiceSecretName" $serviceName | quote }}, key: headerValue } }
+    {{- end }}
+  metrics:
+  {{- range $check := $definition.checks }}
+    - name: {{ $check.name | quote }}
+      successCondition: {{ default (printf "result.statusCode == %v" (default 200 $check.expectedStatus)) $check.successCondition | quote }}
+      provider:
+        web:
+          url: {{ $check.url | quote }}
+          method: {{ default "GET" $check.method | quote }}
+          timeoutSeconds: {{ default 30 $check.timeoutSeconds }}
+          {{- if ne $authType "none" }}
+          headers: [{ key: "{{ `{{ args.authHeaderName }}` }}", value: "{{ `{{ args.authHeaderValue }}` }}" }]
+          {{- end }}
+  {{- end }}
+{{ end }}{{ end }}

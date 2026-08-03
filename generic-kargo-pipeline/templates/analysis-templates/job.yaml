@@ -1,0 +1,19 @@
+{{- range $definition := .Values.analysisTemplates }}{{- $active := false -}}{{- range $stage := values $.Values.pipeline.stages -}}{{- range $reference := default list (dig "verification" "analysisTemplates" list $stage) -}}{{- if and $reference.enabled (eq $reference.name $definition.name) -}}{{- $active = true -}}{{- end -}}{{- end -}}{{- end -}}{{- if and $active (eq $definition.type "job") }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: {{ $definition.name | quote }}
+  labels: {{- include "generic-kargo-pipeline.labels" $ | nindent 4 }}
+    {{- include "generic-kargo-pipeline.applicationLabels" $ | nindent 4 }}
+  annotations: { generic-kargo-pipeline/type: job }
+spec:
+  args:
+    - { name: freightName, value: "" }
+    - { name: releaseCommit, value: "" }
+  metrics:
+    - name: {{ $definition.name | quote }}
+      provider:
+        job:
+          spec: {{- toYaml $definition.job | nindent 12 }}
+{{ end }}{{ end }}

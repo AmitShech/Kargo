@@ -1,0 +1,60 @@
+{{- range $definition := .Values.analysisTemplates }}{{- $active := false -}}{{- range $reference := $.Values.pipeline.stages.dev.verification.analysisTemplates -}}{{- if and $reference.enabled (eq $reference.name $definition.name) -}}{{- $active = true -}}{{- end -}}{{- end -}}{{- if and $active (eq $definition.type "smooth") }}
+{{- range $component := $.Values.sources.components }}{{- if and $component.enabled $component.qaGit }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: {{ printf "%s-%s" $definition.name $component.name | include "generic-kargo-pipeline.normalizeName" | quote }}
+  labels: {{- include "generic-kargo-pipeline.labels" $ | nindent 4 }}
+    {{- include "generic-kargo-pipeline.applicationLabels" $ | nindent 4 }}
+  annotations:
+    generic-kargo-pipeline/type: smooth
+    generic-kargo-pipeline/component: {{ $component.name | quote }}
+spec:
+  args:
+    - name: qaGitSecretName
+    - name: qaGitBranch
+      value: main
+    - name: qaGitPath
+      value: .
+  metrics:
+    - name: clone-and-run-smooth
+      provider:
+        job:
+          spec:
+            backoffLimit: 0
+            template:
+              spec:
+                restartPolicy: Never
+                volumes: [{ name: qa-workspace, emptyDir: {} }]
+                initContainers:
+                  - name: prepare-qa
+                    image: {{ default "alpine/git:2.47.2" (dig "initContainer" "image" "" $definition) | quote }}
+                    command: ["/bin/sh", "-ec"]
+                    args:
+                      - |
+                        if [ -n "$QA_GIT_USERNAME" ]; then
+                          auth="$(printf '%s:%s' "$QA_GIT_USERNAME" "$QA_GIT_PASSWORD" | base64 | tr -d '\n')"
+                          git -c "http.extraHeader=Authorization: Basic ${auth}" clone --depth 1 --branch "$QA_GIT_BRANCH" "$QA_GIT_REPOSITORY" /workspace/qa
+                        else
+                          git clone --depth 1 --branch "$QA_GIT_BRANCH" "$QA_GIT_REPOSITORY" /workspace/qa
+                        fi
+                        test -f "/workspace/qa/$QA_GIT_PATH/.smooth.yaml"
+                    env:
+                      - name: QA_GIT_REPOSITORY
+                        valueFrom: { secretKeyRef: { name: "{{ `{{ args.qaGitSecretName }}` }}", key: repoURL } }
+                      - name: QA_GIT_USERNAME
+                        valueFrom: { secretKeyRef: { name: "{{ `{{ args.qaGitSecretName }}` }}", key: username } }
+                      - name: QA_GIT_PASSWORD
+                        valueFrom: { secretKeyRef: { name: "{{ `{{ args.qaGitSecretName }}` }}", key: password } }
+                      - { name: QA_GIT_BRANCH, value: "{{ `{{ args.qaGitBranch }}` }}" }
+                      - { name: QA_GIT_PATH, value: "{{ `{{ args.qaGitPath }}` }}" }
+                    volumeMounts: [{ name: qa-workspace, mountPath: /workspace }]
+                containers:
+                  - name: smooth
+                    image: {{ $definition.image | quote }}
+                    command: ["smooth"]
+                    args: ["run", "--file", ".smooth.yaml", "--skip-install"]
+                    workingDir: "/workspace/qa/{{ `{{ args.qaGitPath }}` }}"
+                    volumeMounts: [{ name: qa-workspace, mountPath: /workspace }]
+{{ end }}{{ end }}{{ end }}{{ end }}

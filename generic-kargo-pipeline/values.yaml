@@ -1,9 +1,18 @@
-# Default values for the generic Kargo promotion pipeline.
-# Keep application-specific values in an override file instead of editing templates.
-
+# Generic Kargo pipeline defaults. Application-specific values belong in an override file.
 global:
+  system:
+    name: my-system
+    displayName: My System
+    owner: application-team
   labels: {}
   annotations: {}
+  dispatcher:
+    image:
+      # External prerequisite: this chart renders dispatcher Jobs but does not
+      # build, publish, or install the dispatcher implementation.
+      repository: ""
+      tag: ""
+      pullPolicy: IfNotPresent
 
 warehouse:
   name: app-images
@@ -11,110 +20,164 @@ warehouse:
   freightCreationPolicy: Automatic
 
 sources:
-  # Optional. Set only the shared component defaults you want to override.
-  componentDefaults: {}
-
+  componentDefaults:
+    enabled: true
+    tagPolicy:
+      allowedPatterns: []
+      deniedPatterns: []
   components:
     - name: main
       enabled: true
       image:
-        artifactory: registry.example.com/team/my-app
+        repository: registry.example.com/team/my-app
         selectionStrategy: NewestBuild
-        # Optional. Set to a regular expression to restrict eligible tags.
         allowedTags: ""
-        # Optional. Used only when the selected image strategy requires a SemVer constraint.
         semverConstraint: ""
         strictSemvers: false
         discoveryLimit: 20
-
-      git:
+      developerGit:
         repository:
           url: https://gitlab.example.com/team/my-app.git
           username: ""
           password: ""
-
-      # The prepare-release Stage creates or updates this component's deployment file.
+      qaGit:
+        repository:
+          url: https://gitlab.example.com/team/my-app-qa.git
+          username: ""
+          password: ""
+        branch: main
+        path: .
       releaseConfiguration:
         generationEnabled: true
         devConfigurationPath: src/main/resources/Main/dev-configuration.yaml
-        deploymentOverlayPath: configurations/components/name/kargo/config.yaml
+        chartOverlayPath: configurations/components/name/kargo/config.yaml
         outputPath: configurations/components/name/base/config.yaml
-
       valuesMapping:
         tagPath: image.tag
-
-  deploymentGit:
+      tagPolicy:
+        allowedPatterns: []
+        deniedPatterns: []
+      verification:
+        labels: {}
+        filters: {}
+  chartGit:
     repository:
       url: https://gitlab.example.com/team/my-app-deployment.git
       username: ""
       password: ""
-
     branches:
       source: develop
       production: master
-
     subscription:
       enabled: true
       commitSelectionStrategy: NewestFromBranch
       discoveryLimit: 15
-      includePaths:
-        - values.yaml
-        - values/**
-      excludePaths:
-        - kargo/**
-        - release-metadata/**
-
-    paths:
-      valuesFiles:
-        base: values.yaml
-        environment: values/${{ vars.environment }}.yaml
+      includePaths: [values.yaml, values/**]
+      excludePaths: [kargo/**, release-metadata/**]
 
 pipeline:
+  notifications:
+    email:
+      recipients: []
+      defaults:
+        success: { subject: "", body: "" }
+        failure: { subject: "", body: "" }
   stages:
     prepareRelease:
       name: prepare-release
       autoPromotionEnabled: true
+      freightSelectionPolicy: NewestFreight
       releaseBranch: release/${{ ctx.targetFreight.name }}
-
+      tagPolicy: { allowedPatterns: [], deniedPatterns: [] }
+      outcomes: {}
     dev:
       name: dev
       autoPromotionEnabled: true
-      deployment:
-        namespace: my-app-dev
-        argocd:
-          applicationName: my-app-dev
-          namespace: argocd
+      freightSelectionPolicy: MatchUpstream
+      argocd: { applicationName: my-app-dev }
+      tagPolicy: { allowedPatterns: [], deniedPatterns: [] }
       verification:
-        enabled: true
-        templateName: my-app-dev-qa
-        timeout: 30m
-
+        enabled: false
+        mode: blocking
+        parallelismLimit: 2
+        runForChangedComponentsOnly: true
+        analysisTemplates: []
+      outcomes: {}
     integration:
       name: integration
       autoPromotionEnabled: true
-      deployment:
-        namespace: my-app-integration
-        argocd:
-          applicationName: my-app-integration
-          namespace: argocd
+      freightSelectionPolicy: MatchUpstream
+      argocd: { applicationName: my-app-integration }
+      tagPolicy: { allowedPatterns: [], deniedPatterns: [] }
       verification:
-        enabled: true
-        templateName: my-app-integration-verification
-        timeout: 45m
-
+        enabled: false
+        mode: blocking
+        initialDelay: 0s
+        duration: 10m
+        interval: 1m
+        maxMeasurements: 1000
+        allowedFailedMeasurements: 0
+        dryRunAll: false
+        analysisTemplates: []
+      outcomes: {}
     preProduction:
       name: pre-production
       autoPromotionEnabled: true
-
+      freightSelectionPolicy: MatchUpstream
+      tagPolicy:
+        allowedPatterns: ['^v?[0-9]+\.[0-9]+\.[0-9]+$']
+        deniedPatterns: ['^dev-', '-rc', '-snapshot']
+      ai:
+        enabled: false
+        schedule:
+          timezone: Asia/Jerusalem
+          workingDaysAhead: 3
+          startTime: "13:00"
+          durationMinutes: 15
+          excludedWeekdays: [Friday, Saturday]
+          holidays: []
+        requiredFields: [title, description, reason, impact, startTime, endTime]
+        prompt: "Return JSON only and populate every required field from the supplied release evidence."
+      serviceNow: { enabled: false, fixedFields: {}, aiFieldMapping: {} }
+      gitLab:
+        enabled: false
+        projectPath: ""
+        fixedFields:
+          title: ""
+          description: ""
+        mergeRequest:
+          squash: false
+          removeSourceBranchWhenMerged: true
+          requireCommitPreservingMerge: true
+      outcomes: {}
     production:
       name: production
       autoPromotionEnabled: false
-      deployment:
-        namespace: my-app-production
-        argocd:
-          applicationName: my-app-production
-          namespace: argocd
+      freightSelectionPolicy: MatchUpstream
+      argocd: { applicationName: my-app-production }
+      tagPolicy:
+        allowedPatterns: ['^v?[0-9]+\.[0-9]+\.[0-9]+$']
+        deniedPatterns: ['^dev-', '-rc', '-snapshot']
       verification:
-        enabled: true
-        templateName: my-app-production-smoke
-        timeout: 10m
+        enabled: false
+        mode: blocking
+        analysisTemplates: []
+      outcomes:
+        success:
+          notifications: { email: { enabled: false, subject: "", body: "" } }
+          serviceNow: { enabled: false, fields: {} }
+        failure:
+          notifications: { email: { enabled: false, subject: "", body: "" } }
+          serviceNow: { enabled: false, fields: {} }
+          monitoring: { enabled: false, payload: {} }
+
+services:
+  prometheus: { endpoint: "", allowInsecureHttp: false, labels: {}, authentication: { type: none } }
+  elasticsearch: { endpoint: "", allowInsecureHttp: false, index: "", timeField: "@timestamp", filters: {}, authentication: { type: none } }
+  ai: { endpoint: "", allowInsecureHttp: false, authentication: { type: none } }
+  serviceNow: { endpoint: "", allowInsecureHttp: false, authentication: { type: none } }
+  gitLab: { endpoint: "", allowInsecureHttp: false, authentication: { type: none } }
+  mail: { endpoint: "", allowInsecureHttp: false, authentication: { type: none } }
+  monitoring: { endpoint: "", allowInsecureHttp: false, authentication: { type: none } }
+
+analysisTemplates: []

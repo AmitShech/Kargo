@@ -23,22 +23,22 @@ spec:
   interval: {{ .Values.warehouse.interval | quote }}
   freightCreationPolicy: {{ .Values.warehouse.freightCreationPolicy | quote }}
   subscriptions:
-{{- if not (or .Values.sources.deploymentGit.subscription.enabled $hasEnabledComponents) }}
+{{- if not (or .Values.sources.chartGit.subscription.enabled $hasEnabledComponents) }}
     []
 {{- end }}
-{{- if .Values.sources.deploymentGit.subscription.enabled }}
+{{- if .Values.sources.chartGit.subscription.enabled }}
     - git:
-        repoURL: {{ .Values.sources.deploymentGit.repository.url | quote }}
-        branch: {{ .Values.sources.deploymentGit.branches.source | quote }}
-        commitSelectionStrategy: {{ default "NewestFromBranch" .Values.sources.deploymentGit.subscription.commitSelectionStrategy | quote }}
-        {{- with .Values.sources.deploymentGit.subscription.discoveryLimit }}
+        repoURL: {{ .Values.sources.chartGit.repository.url | quote }}
+        branch: {{ .Values.sources.chartGit.branches.source | quote }}
+        commitSelectionStrategy: {{ default "NewestFromBranch" .Values.sources.chartGit.subscription.commitSelectionStrategy | quote }}
+        {{- with .Values.sources.chartGit.subscription.discoveryLimit }}
         discoveryLimit: {{ . }}
         {{- end }}
-        {{- with .Values.sources.deploymentGit.subscription.includePaths }}
+        {{- with .Values.sources.chartGit.subscription.includePaths }}
         includePaths:
           {{- toYaml . | nindent 10 }}
         {{- end }}
-        {{- with .Values.sources.deploymentGit.subscription.excludePaths }}
+        {{- with .Values.sources.chartGit.subscription.excludePaths }}
         excludePaths:
           {{- toYaml . | nindent 10 }}
         {{- end }}
@@ -47,7 +47,7 @@ spec:
 {{- $component := mergeOverwrite (deepCopy $componentDefaults) . -}}
 {{- if $component.enabled }}
     - image:
-        repoURL: {{ $component.image.artifactory | quote }}
+        repoURL: {{ $component.image.repository | quote }}
         imageSelectionStrategy: {{ default "NewestBuild" $component.image.selectionStrategy | quote }}
         {{- with $component.image.allowedTags }}
         allowTags: {{ . | quote }}

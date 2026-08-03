@@ -1,0 +1,58 @@
+{{- $stage := .Values.pipeline.stages.integration -}}
+{{- $revision := include "generic-kargo-pipeline.kargoExpression" "freightMetadata(ctx.targetFreight.name)['release-commit']" -}}
+{{- $definitions := dict -}}{{- range .Values.analysisTemplates }}{{- $_ := set $definitions .name . -}}{{- end -}}
+{{- $hasDispatched := false -}}{{- range $reference := $stage.verification.analysisTemplates }}{{- $definition := get $definitions $reference.name }}{{- if and $reference.enabled $definition (eq $definition.target "components") (ne $definition.type "external") }}{{- $hasDispatched = true }}{{- end }}{{- end -}}
+{{- $hasExternal := false -}}{{- range $reference := $stage.verification.analysisTemplates }}{{- $definition := get $definitions $reference.name }}{{- if and $reference.enabled $definition (eq $definition.type "external") }}{{- $hasExternal = true }}{{- end }}{{- end -}}
+apiVersion: kargo.akuity.io/v1alpha1
+kind: Stage
+metadata:
+  name: {{ include "generic-kargo-pipeline.normalizeName" $stage.name | quote }}
+  labels: {{- include "generic-kargo-pipeline.labels" . | nindent 4 }}
+    {{- include "generic-kargo-pipeline.applicationLabels" . | nindent 4 }}
+spec:
+  requestedFreight:
+    - origin: { kind: Warehouse, name: {{ include "generic-kargo-pipeline.normalizeName" .Values.warehouse.name | quote }} }
+      sources:
+        stages: [{{ include "generic-kargo-pipeline.normalizeName" .Values.pipeline.stages.dev.name | quote }}]
+        autoPromotionOptions: { selectionPolicy: {{ $stage.freightSelectionPolicy | quote }} }
+  promotionTemplate:
+    spec:
+      steps:
+{{ include "generic-kargo-pipeline.tagPolicySteps" (dict "stageKey" "integration" "stage" $stage "components" .Values.sources.components) | nindent 8 }}
+        - uses: argocd-update
+          as: deploy-exact-release
+          config:
+            apps:
+              - name: {{ $stage.argocd.applicationName | quote }}
+                sources:
+                  - repoURL: {{ .Values.sources.chartGit.repository.url | quote }}
+                    desiredRevision: {{ $revision | quote }}
+                    updateTargetRevision: true
+{{ include "generic-kargo-pipeline.outcomeEmailSteps" (dict "root" . "stageKey" "integration" "stage" $stage "includeSuccess" false) | nindent 8 }}
+  {{- if and $stage.verification.enabled $stage.verification.analysisTemplates }}
+  verification:
+    analysisTemplates:
+      {{- range $stage.verification.analysisTemplates }}{{- $definition := get $definitions .name }}{{- if and .enabled (ne $definition.target "components") (ne $definition.type "external") }}
+      - name: {{ default .name $definition.resourceName | quote }}
+        {{- if eq $definition.type "external" }}
+        kind: {{ default $definition.kind .kind | quote }}
+        {{- else }}{{- with .kind }}
+        kind: {{ . | quote }}{{- end }}{{- end }}
+      {{- end }}{{- end }}
+      {{- if $hasDispatched }}
+      - name: {{ printf "%s-integration-dispatcher" (include "generic-kargo-pipeline.fullname" .) | include "generic-kargo-pipeline.normalizeName" | quote }}
+      {{- end }}
+      {{- if $hasExternal }}
+      - name: {{ printf "%s-integration-external-dispatcher" (include "generic-kargo-pipeline.fullname" .) | include "generic-kargo-pipeline.normalizeName" | quote }}
+      {{- end }}
+    args:
+      - { name: freightName, value: {{ include "generic-kargo-pipeline.kargoExpression" "ctx.targetFreight.name" | quote }} }
+      - { name: releaseCommit, value: {{ $revision | quote }} }
+      - { name: verificationStartedAt, value: {{ include "generic-kargo-pipeline.kargoExpression" "time.Now().Format(time.RFC3339)" | quote }} }
+      - { name: initialDelay, value: {{ $stage.verification.initialDelay | quote }} }
+      - { name: duration, value: {{ $stage.verification.duration | quote }} }
+      - { name: interval, value: {{ $stage.verification.interval | quote }} }
+      - { name: allowedFailedMeasurements, value: {{ $stage.verification.allowedFailedMeasurements | quote }} }
+      - { name: dryRunAll, value: {{ $stage.verification.dryRunAll | quote }} }
+{{ include "generic-kargo-pipeline.externalStageArgs" (dict "definitions" $definitions "references" $stage.verification.analysisTemplates) | nindent 6 }}
+  {{- end }}

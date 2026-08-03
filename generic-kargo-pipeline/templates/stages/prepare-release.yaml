@@ -1,8 +1,9 @@
 {{- include "generic-kargo-pipeline.validateValues" . -}}
+{{- $stage := .Values.pipeline.stages.prepareRelease -}}
 {{- $builtInComponentDefaults := include "generic-kargo-pipeline.componentDefaults" . | fromYaml -}}
 {{- $componentDefaults := mergeOverwrite (deepCopy $builtInComponentDefaults) (default dict .Values.sources.componentDefaults) -}}
 {{- $enabledComponents := list -}}
-{{- $deploymentCommitExpression := include "generic-kargo-pipeline.kargoExpression" "commitFrom(vars.deploymentRepo).ID" -}}
+{{- $deploymentCommitExpression := include "generic-kargo-pipeline.kargoExpression" "commitFrom(vars.chartRepo).ID" -}}
 {{- $targetBranchExpression := include "generic-kargo-pipeline.kargoExpression" "vars.targetBranch" -}}
 {{- $targetFreightNameExpression := include "generic-kargo-pipeline.kargoExpression" "ctx.targetFreight.name" -}}
 {{- $committedRevisionExpression := include "generic-kargo-pipeline.kargoExpression" "outputs.commit.commit" -}}
@@ -30,25 +31,41 @@ spec:
         name: {{ include "generic-kargo-pipeline.normalizeName" .Values.warehouse.name | quote }}
       sources:
         direct: true
+        autoPromotionOptions:
+          selectionPolicy: {{ .Values.pipeline.stages.prepareRelease.freightSelectionPolicy | quote }}
   promotionTemplate:
     spec:
       vars:
-        - name: deploymentRepo
-          value: {{ .Values.sources.deploymentGit.repository.url | quote }}
+        - name: chartRepo
+          value: {{ .Values.sources.chartGit.repository.url | quote }}
         - name: targetBranch
           value: {{ .Values.pipeline.stages.prepareRelease.releaseBranch | quote }}
       steps:
+{{ include "generic-kargo-pipeline.tagPolicySteps" (dict "stageKey" "prepare-release" "stage" .Values.pipeline.stages.prepareRelease "components" $enabledComponents) | nindent 8 }}
         - uses: git-clone
           as: clone-deployment
           config:
-            repoURL: {{ .Values.sources.deploymentGit.repository.url | quote }}
+            repoURL: {{ .Values.sources.chartGit.repository.url | quote }}
             checkout:
               - commit: {{ $deploymentCommitExpression | quote }}
+                as: chart-input
                 path: ./source
               - branch: {{ $targetBranchExpression | quote }}
+                as: release-branch
                 create: true
                 path: ./release
 
+{{- range $enabledComponents }}
+{{- $componentName := include "generic-kargo-pipeline.normalizeName" .name }}
+{{- $outputPath := replace "name" $componentName .releaseConfiguration.outputPath }}
+        - uses: yaml-parse
+          as: {{ printf "inspect-%s" $componentName | quote }}
+          config:
+            path: {{ print "./source/" $outputPath | quote }}
+            outputs:
+              - name: existingTag
+                fromExpression: {{ .valuesMapping.tagPath | quote }}
+{{- end }}
         - uses: git-clear
           as: clear-release
           config:
@@ -62,28 +79,29 @@ spec:
 
 {{- range $enabledComponents }}
 {{- $componentName := include "generic-kargo-pipeline.normalizeName" .name }}
-{{- if .releaseConfiguration.generationEnabled }}
 {{- $devConfigurationPath := replace "name" $componentName .releaseConfiguration.devConfigurationPath }}
-{{- $deploymentOverlayPath := replace "name" $componentName .releaseConfiguration.deploymentOverlayPath }}
+{{- $chartOverlayPath := replace "name" $componentName .releaseConfiguration.chartOverlayPath }}
 {{- $outputPath := replace "name" $componentName .releaseConfiguration.outputPath }}
-{{- $imageTagExpression := include "generic-kargo-pipeline.kargoExpression" (printf "imageFrom(%q).Tag" .image.artifactory) }}
+{{- $imageTagExpression := include "generic-kargo-pipeline.kargoExpression" (printf "imageFrom(%q).Tag" .image.repository) }}
         - uses: git-clone
           as: {{ print "clone-" $componentName "-config" | quote }}
           config:
-            repoURL: {{ .git.repository.url | quote }}
+            repoURL: {{ .developerGit.repository.url | quote }}
             checkout:
               - tag: {{ $imageTagExpression | squote }}
+                as: {{ $componentName | quote }}
                 path: {{ print "./config/" $componentName | quote }}
+{{- if .releaseConfiguration.generationEnabled }}
         - uses: yaml-merge
           as: {{ print "merge-" $componentName "-config" | quote }}
           config:
             inFiles:
               - {{ print "./config/" $componentName "/" $devConfigurationPath | quote }}
-              - {{ print "./release/" $deploymentOverlayPath | quote }}
+              - {{ print "./release/" $chartOverlayPath | quote }}
             outFile: {{ print "./release/" $outputPath | quote }}
 {{- end }}
 {{- $outputPath := replace "name" $componentName .releaseConfiguration.outputPath }}
-{{- $imageTagValueExpression := include "generic-kargo-pipeline.kargoExpression" (printf "imageFrom(%q).Tag" .image.artifactory) }}
+{{- $imageTagValueExpression := include "generic-kargo-pipeline.kargoExpression" (printf "imageFrom(%q).Tag" .image.repository) }}
         - uses: yaml-update
           as: {{ print "update-" $componentName "-image" | quote }}
           config:
@@ -111,4 +129,23 @@ spec:
               - kind: Freight
                 name: {{ $targetFreightNameExpression | quote }}
                 values:
+                  chart-input-commit: {{ $deploymentCommitExpression | quote }}
+                  release-branch: {{ $targetBranchExpression | quote }}
+                  release-commit: {{ $committedRevisionExpression | quote }}
                   deploy-from-commit: {{ $committedRevisionExpression | quote }}
+                  changed-components:
+{{- range $enabledComponents }}
+{{- $componentName := include "generic-kargo-pipeline.normalizeName" .name }}
+                    {{ $componentName }}: {{ include "generic-kargo-pipeline.kargoExpression" (printf "outputs['inspect-%s'].existingTag != imageFrom(%q).Tag" $componentName .image.repository) | quote }}
+{{- end }}
+                  component-evidence:
+{{- range $enabledComponents }}
+{{- $componentName := include "generic-kargo-pipeline.normalizeName" .name }}
+                    {{ $componentName }}:
+                      imageTag: {{ include "generic-kargo-pipeline.kargoExpression" (printf "imageFrom(%q).Tag" .image.repository) | quote }}
+                      imageDigest: {{ include "generic-kargo-pipeline.kargoExpression" (printf "imageFrom(%q).Digest" .image.repository) | quote }}
+                      developerGitTag: {{ include "generic-kargo-pipeline.kargoExpression" (printf "imageFrom(%q).Tag" .image.repository) | quote }}
+                      developerGitCommit: {{ include "generic-kargo-pipeline.kargoExpression" (printf "outputs['clone-%s-config'].commits[%q]" $componentName $componentName) | quote }}
+                      previousTag: {{ include "generic-kargo-pipeline.kargoExpression" (printf "outputs['inspect-%s'].existingTag" $componentName) | quote }}
+{{- end }}
+{{ include "generic-kargo-pipeline.outcomeEmailSteps" (dict "root" . "stageKey" "prepare-release" "stage" $stage "includeSuccess" true) | nindent 8 }}

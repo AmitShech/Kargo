@@ -1,0 +1,38 @@
+global:
+  dispatcher:
+    image:
+      repository: registry.example.com/platform/kargo-analysis-dispatcher
+      tag: "1.0.0"
+      pullPolicy: IfNotPresent
+
+analysisTemplates:
+  - name: organization-qa
+    type: external
+    target: stage
+    resourceName: existing-organization-qa
+    kind: ClusterAnalysisTemplate
+    retryAmount: 2
+    timeout: 20m
+    ttlAfterFinished: 4h
+    mode: blocking
+    arguments:
+      - { name: freightName, required: true }
+      - { name: environment, required: true }
+      - { name: region, default: eu }
+
+pipeline:
+  stages:
+    dev:
+      verification:
+        enabled: true
+        analysisTemplates:
+          - name: organization-qa
+            enabled: true
+            overrides:
+              retryAmount: 0
+              timeout: 10m
+              ttlAfterFinished: 2h
+              mode: dry-run
+              allowedFailedMeasurements: 1
+            arguments:
+              - { name: environment, value: dev }

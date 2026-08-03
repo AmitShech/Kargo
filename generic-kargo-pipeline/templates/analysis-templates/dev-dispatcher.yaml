@@ -1,0 +1,41 @@
+{{- $stage := .Values.pipeline.stages.dev -}}
+{{- $definitions := dict -}}{{- range .Values.analysisTemplates }}{{- $_ := set $definitions .name . -}}{{- end -}}
+{{- $activeSmooth := list -}}{{- range $stage.verification.analysisTemplates }}{{- $d := get $definitions .name }}{{- if and .enabled $d (eq $d.type "smooth") }}{{- $activeSmooth = append $activeSmooth $d }}{{- end }}{{- end -}}
+{{- if and $stage.verification.enabled $activeSmooth }}
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: {{ printf "%s-dev-dispatcher" (include "generic-kargo-pipeline.fullname" .) | include "generic-kargo-pipeline.normalizeName" | quote }}
+  labels: {{- include "generic-kargo-pipeline.labels" . | nindent 4 }}
+    {{- include "generic-kargo-pipeline.applicationLabels" . | nindent 4 }}
+spec:
+  args:
+    - name: freightName
+    - name: changedComponents
+    - name: runForChangedComponentsOnly
+    - name: parallelismLimit
+  metrics:
+    - name: dispatch
+      provider:
+        job:
+          spec:
+            backoffLimit: 0
+            template:
+              spec:
+                serviceAccountName: {{ printf "%s-dispatcher" (include "generic-kargo-pipeline.fullname" .) | include "generic-kargo-pipeline.normalizeName" | quote }}
+                restartPolicy: Never
+                containers:
+                  - name: dispatcher
+                    image: {{ printf "%s:%s" .Values.global.dispatcher.image.repository .Values.global.dispatcher.image.tag | quote }}
+                    imagePullPolicy: {{ .Values.global.dispatcher.image.pullPolicy | quote }}
+                    env:
+                      - name: DISPATCHER_CONFIG
+                        value: >-
+                          {"parentName":"{{ `{{ args.freightName }}` }}-dev","parallelism":{{ `{{ args.parallelismLimit }}` }},"changedOnly":{{ `{{ args.runForChangedComponentsOnly }}` }},"changed":{{ `{{ args.changedComponents }}` }},"components":[{{- $entries := list -}}{{- range $definition := $activeSmooth }}{{- range $component := $.Values.sources.components }}{{- if $component.enabled }}{{- $entries = append $entries (toJson (dict "name" $component.name "template" (include "generic-kargo-pipeline.normalizeName" (printf "%s-%s" $definition.name $component.name)) "args" (dict "qaGitSecretName" (include "generic-kargo-pipeline.componentQaGitSecretName" $component) "qaGitBranch" (default "main" $component.qaGit.branch) "qaGitPath" (default "." $component.qaGit.path)))) }}{{- end }}{{- end }}{{- end }}{{ join "," $entries }}],"mail":{{ toJson (dict "endpoint" $.Values.services.mail.endpoint "recipients" $.Values.pipeline.notifications.email.recipients "defaults" $.Values.pipeline.notifications.email.defaults "outcomes" $stage.outcomes) }}}
+                      {{- if ne (default "none" $.Values.services.mail.authentication.type) "none" }}
+                      - name: MAIL_AUTH_HEADER_NAME
+                        valueFrom: { secretKeyRef: { name: {{ include "generic-kargo-pipeline.httpServiceSecretName" "mail" | quote }}, key: headerName } }
+                      - name: MAIL_AUTH_HEADER_VALUE
+                        valueFrom: { secretKeyRef: { name: {{ include "generic-kargo-pipeline.httpServiceSecretName" "mail" | quote }}, key: headerValue } }
+                      {{- end }}
+{{- end }}

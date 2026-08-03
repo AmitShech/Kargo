@@ -1,0 +1,28 @@
+{{- $enabled := or .Values.pipeline.stages.dev.verification.enabled .Values.pipeline.stages.integration.verification.enabled .Values.pipeline.stages.production.verification.enabled -}}
+{{- if $enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ printf "%s-dispatcher" (include "generic-kargo-pipeline.fullname" .) | include "generic-kargo-pipeline.normalizeName" | quote }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ printf "%s-dispatcher" (include "generic-kargo-pipeline.fullname" .) | include "generic-kargo-pipeline.normalizeName" | quote }}
+rules:
+  - apiGroups: [argoproj.io]
+    resources: [analysisruns, analysistemplates]
+    verbs: [create, get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ printf "%s-dispatcher" (include "generic-kargo-pipeline.fullname" .) | include "generic-kargo-pipeline.normalizeName" | quote }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ printf "%s-dispatcher" (include "generic-kargo-pipeline.fullname" .) | include "generic-kargo-pipeline.normalizeName" | quote }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ printf "%s-dispatcher" (include "generic-kargo-pipeline.fullname" .) | include "generic-kargo-pipeline.normalizeName" | quote }}
+{{- end }}

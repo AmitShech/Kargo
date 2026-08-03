@@ -1,0 +1,97 @@
+services:
+  prometheus:
+    endpoint: https://prometheus.example
+    labels: { environment: integration }
+  elasticsearch:
+    endpoint: https://elasticsearch.example
+    index: integration-*
+
+global:
+  dispatcher:
+    image:
+      repository: registry.example.com/platform/kargo-analysis-dispatcher
+      tag: "1.0.0"
+      pullPolicy: IfNotPresent
+
+sources:
+  components:
+    - name: main
+      enabled: true
+      image: { repository: registry.example.com/team/main }
+      developerGit: { repository: { url: https://gitlab.example.com/team/main.git } }
+      qaGit: { repository: { url: https://gitlab.example.com/team/main-qa.git }, branch: main, path: . }
+      releaseConfiguration: { generationEnabled: true, devConfigurationPath: src/main/dev.yaml, chartOverlayPath: configurations/components/name/kargo/config.yaml, outputPath: configurations/components/name/base/config.yaml }
+      valuesMapping: { tagPath: image.tag }
+      tagPolicy: { allowedPatterns: [], deniedPatterns: [] }
+      verification:
+        labels: { component: main, shared: component-main }
+        filters: { component.keyword: main, shared.keyword: component-main }
+    - name: billing
+      enabled: true
+      image: { repository: registry.example.com/team/billing }
+      developerGit: { repository: { url: https://gitlab.example.com/team/billing.git } }
+      qaGit: { repository: { url: https://gitlab.example.com/team/billing-qa.git }, branch: qa, path: suites }
+      releaseConfiguration: { generationEnabled: true, devConfigurationPath: src/billing/dev.yaml, chartOverlayPath: configurations/components/name/kargo/config.yaml, outputPath: configurations/components/name/base/config.yaml }
+      valuesMapping: { tagPath: image.tag }
+      tagPolicy: { allowedPatterns: [], deniedPatterns: [] }
+      verification:
+        labels: { component: billing, shared: component-billing }
+        filters: { component.keyword: billing, shared.keyword: component-billing }
+
+analysisTemplates:
+  - name: dev-smooth
+    type: smooth
+    target: components
+    retryAmount: 1
+    timeout: 30m
+    ttlAfterFinished: 6h
+    mode: blocking
+    image: registry.example.com/tools/smooth:1
+    initContainer:
+      image: registry.example.com/tools/prepare-qa:1
+  - name: flink-metrics
+    type: prometheus
+    target: components
+    retryAmount: 1
+    timeout: 30m
+    ttlAfterFinished: 6h
+    mode: blocking
+    metrics:
+      - name: restarts
+        query: 'max(flink_restarts{ {{ labels }} })'
+        maximum: 0
+        interval: 3m
+        allowedFailedMeasurements: 2
+    targets:
+      - component: billing
+        labels: { target: billing-target, shared: target-billing }
+  - name: flink-errors
+    type: elasticsearch
+    target: components
+    retryAmount: 1
+    timeout: 30m
+    ttlAfterFinished: 6h
+    mode: dry-run
+    targets:
+      - component: billing
+        index: billing-integration-*
+        filters: { target.keyword: billing, shared.keyword: target-billing }
+    checks:
+      - name: checkpoint-failure
+        query: { term: { event.code: FLINK_CHECKPOINT_FAILED } }
+        maximumCount: 0
+        interval: 4m
+
+pipeline:
+  stages:
+    dev:
+      verification:
+        enabled: true
+        analysisTemplates: [{ name: dev-smooth, enabled: true }]
+    integration:
+      verification:
+        enabled: true
+        duration: 10m
+        interval: 1m
+        allowedFailedMeasurements: 1
+        analysisTemplates: [{ name: flink-metrics, enabled: true }, { name: flink-errors, enabled: true }]

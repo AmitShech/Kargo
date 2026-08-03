@@ -1,0 +1,377 @@
+# Demonstration only. Replace all example repositories, endpoints, credentials,
+# queries, fields, and images before use. Never commit real credentials.
+
+global:
+  system:
+    name: payment-platform
+    displayName: Payment Platform
+    owner: streaming-team
+  labels:
+    environment-family: payment
+  annotations:
+    documentation: https://docs.example.test/payment
+  dispatcher:
+    image:
+      repository: registry.example.test/platform/kargo-analysis-dispatcher
+      tag: "1.0.0"
+      pullPolicy: IfNotPresent
+
+warehouse:
+  name: payment-freight
+  interval: 5m
+  freightCreationPolicy: Automatic
+
+sources:
+  componentDefaults:
+    enabled: true
+    tagPolicy: { allowedPatterns: [], deniedPatterns: ['-experimental$'] }
+    qaGit:
+      branch: main
+      path: .
+    verification:
+      labels: { system: payment-platform }
+      filters: { system.keyword: payment-platform }
+
+  components:
+    - name: payments
+      image:
+        repository: registry.example.test/payment/payments
+        selectionStrategy: NewestBuild
+        allowedTags: '^(dev-)?[0-9]+\.[0-9]+\.[0-9]+$'
+      developerGit:
+        repository:
+          url: https://gitlab.example.test/payment/payments.git
+          username: CHANGE_ME
+          password: CHANGE_ME
+      qaGit:
+        repository:
+          url: https://gitlab.example.test/qa/payments.git
+          username: CHANGE_ME
+          password: CHANGE_ME
+        branch: main
+        path: .
+      releaseConfiguration:
+        generationEnabled: true
+        devConfigurationPath: src/main/resources/dev-configuration.yaml
+        chartOverlayPath: configurations/components/payments/kargo/config.yaml
+        outputPath: configurations/components/payments/base/config.yaml
+      valuesMapping: { tagPath: image.tag }
+      tagPolicy: { allowedPatterns: [], deniedPatterns: ['-broken$'] }
+      verification:
+        labels: { job_name: payments-stream }
+        filters: { component.keyword: payments }
+
+    - name: settlements
+      image:
+        repository: registry.example.test/payment/settlements
+        selectionStrategy: NewestBuild
+        allowedTags: '^(dev-)?[0-9]+\.[0-9]+\.[0-9]+$'
+      developerGit:
+        repository:
+          url: https://gitlab.example.test/payment/settlements.git
+          username: CHANGE_ME
+          password: CHANGE_ME
+      qaGit:
+        repository:
+          url: https://gitlab.example.test/qa/settlements.git
+          username: CHANGE_ME
+          password: CHANGE_ME
+        branch: main
+        path: suites/settlements
+      releaseConfiguration:
+        generationEnabled: false
+        devConfigurationPath: ""
+        chartOverlayPath: ""
+        outputPath: configurations/components/settlements/base/config.yaml
+      valuesMapping: { tagPath: image.tag }
+      tagPolicy: { allowedPatterns: [], deniedPatterns: [] }
+      verification:
+        labels: { job_name: settlements-stream }
+        filters: { component.keyword: settlements }
+
+  chartGit:
+    repository:
+      url: https://gitlab.example.test/payment/deployment-chart.git
+      username: CHANGE_ME
+      password: CHANGE_ME
+    branches:
+      source: develop
+      production: main
+    subscription:
+      enabled: true
+      commitSelectionStrategy: NewestFromBranch
+      discoveryLimit: 20
+      includePaths: [configurations/**, values/**]
+      excludePaths: [kargo/**, release-metadata/**]
+
+pipeline:
+  notifications:
+    email:
+      recipients: [payment-operations@example.test]
+      defaults:
+        success:
+          subject: Payment promotion succeeded
+          body: The requested promotion completed successfully.
+        failure:
+          subject: Payment promotion failed
+          body: The requested promotion failed. Inspect Kargo for details.
+
+  stages:
+    prepareRelease:
+      name: prepare-release
+      autoPromotionEnabled: true
+      freightSelectionPolicy: NewestFreight
+      releaseBranch: release/${{ ctx.targetFreight.name }}
+      tagPolicy: { allowedPatterns: [], deniedPatterns: [] }
+      outcomes:
+        success: { notifications: { email: { enabled: true, subject: "", body: "" } } }
+        failure: { notifications: { email: { enabled: true, subject: "", body: "" } } }
+
+    dev:
+      name: dev
+      autoPromotionEnabled: true
+      freightSelectionPolicy: MatchUpstream
+      argocd: { applicationName: payment-dev }
+      tagPolicy: { allowedPatterns: [], deniedPatterns: [] }
+      verification:
+        enabled: true
+        mode: blocking
+        parallelismLimit: 2
+        runForChangedComponentsOnly: true
+        analysisTemplates:
+          - { name: component-smooth, enabled: true }
+          - name: organization-dev-policy
+            enabled: true
+            arguments: [{ name: environment, value: dev }]
+      outcomes:
+        success: { notifications: { email: { enabled: true, subject: "", body: "" } } }
+        failure: { notifications: { email: { enabled: true, subject: "", body: "" } } }
+
+    integration:
+      name: integration
+      autoPromotionEnabled: true
+      freightSelectionPolicy: MatchUpstream
+      argocd: { applicationName: payment-integration }
+      tagPolicy: { allowedPatterns: [], deniedPatterns: [] }
+      verification:
+        enabled: true
+        mode: blocking
+        initialDelay: 5m
+        duration: 20m
+        interval: 1m
+        maxMeasurements: 1000
+        allowedFailedMeasurements: 1
+        dryRunAll: false
+        analysisTemplates:
+          - { name: flink-metrics, enabled: true }
+          - { name: flink-errors, enabled: true }
+          - { name: integration-health, enabled: true }
+      outcomes:
+        success: { notifications: { email: { enabled: true, subject: "", body: "" } } }
+        failure: { notifications: { email: { enabled: true, subject: "", body: "" } } }
+
+    preProduction:
+      name: pre-production
+      autoPromotionEnabled: true
+      freightSelectionPolicy: MatchUpstream
+      tagPolicy:
+        allowedPatterns: ['^v?[0-9]+\.[0-9]+\.[0-9]+$']
+        deniedPatterns: ['^dev-', '-rc', '-snapshot']
+      ai:
+        enabled: true
+        schedule:
+          timezone: Asia/Jerusalem
+          workingDaysAhead: 3
+          startTime: "13:00"
+          durationMinutes: 15
+          excludedWeekdays: [Friday, Saturday]
+          holidays: []
+        requiredFields: [title, description, reason, impact, startTime, endTime]
+        prompt: >-
+          Return JSON only. Describe the application and changed components,
+          customer-visible features or downtime, reason, impact, and a change
+          window three working days forward in the configured timezone.
+      serviceNow:
+        enabled: true
+        fixedFields:
+          assignment_group: Payment Operations
+          category: Software
+          risk: low
+        aiFieldMapping: {}
+      gitLab:
+        enabled: true
+        projectPath: payment/deployment-chart
+        fixedFields: { title: "", description: "" }
+        mergeRequest:
+          squash: false
+          removeSourceBranchWhenMerged: true
+          requireCommitPreservingMerge: true
+      outcomes:
+        success: { notifications: { email: { enabled: true, subject: "", body: "" } } }
+        failure: { notifications: { email: { enabled: true, subject: "", body: "" } } }
+
+    production:
+      name: production
+      autoPromotionEnabled: false
+      freightSelectionPolicy: MatchUpstream
+      argocd: { applicationName: payment-production }
+      tagPolicy:
+        allowedPatterns: ['^v?[0-9]+\.[0-9]+\.[0-9]+$']
+        deniedPatterns: ['^dev-', '-rc', '-snapshot']
+      verification:
+        enabled: true
+        mode: blocking
+        analysisTemplates:
+          - { name: production-health, enabled: true }
+          - { name: maintenance-proof-job, enabled: true }
+          - { name: production-policy, enabled: true, arguments: [{ name: environment, value: production }] }
+      outcomes:
+        success:
+          notifications: { email: { enabled: true, subject: "Production deployment succeeded", body: "The tested release was deployed successfully." } }
+          serviceNow: { enabled: true, fields: { state: completed, close_notes: Deployment succeeded } }
+        failure:
+          notifications: { email: { enabled: true, subject: "Production deployment failed", body: "Production verification failed." } }
+          serviceNow: { enabled: true, fields: { state: failed, close_notes: Deployment or validation failed } }
+          monitoring:
+            enabled: true
+            payload: { severity: critical, source: kargo, summary: Production verification failed }
+
+services:
+  prometheus:
+    endpoint: https://prometheus.example.test
+    allowInsecureHttp: false
+    labels: { cluster: integration, namespace: payment-integration }
+    authentication: { type: apiKey, headerName: X-API-Key, key: CHANGE_ME, prefix: "" }
+  elasticsearch:
+    endpoint: https://elasticsearch.example.test
+    allowInsecureHttp: false
+    index: payment-integration-*
+    timeField: '@timestamp'
+    filters: { environment.keyword: integration }
+    authentication: { type: basic, username: CHANGE_ME, password: CHANGE_ME }
+  ai:
+    endpoint: https://release-ai.example.test
+    allowInsecureHttp: false
+    authentication: { type: apiKey, headerName: X-API-Key, key: CHANGE_ME, prefix: "" }
+  serviceNow:
+    endpoint: https://servicenow.example.test
+    allowInsecureHttp: false
+    authentication: { type: basic, username: CHANGE_ME, password: CHANGE_ME }
+  gitLab:
+    endpoint: https://gitlab.example.test
+    allowInsecureHttp: false
+    authentication: { type: apiKey, headerName: PRIVATE-TOKEN, key: CHANGE_ME, prefix: "" }
+  mail:
+    endpoint: https://mail-api.example.test/send
+    allowInsecureHttp: false
+    authentication: { type: apiKey, headerName: X-API-Key, key: CHANGE_ME, prefix: "" }
+  monitoring:
+    endpoint: https://monitoring.example.test/alerts
+    allowInsecureHttp: false
+    authentication: { type: apiKey, headerName: X-API-Key, key: CHANGE_ME, prefix: "" }
+
+analysisTemplates:
+  - name: component-smooth
+    type: smooth
+    target: components
+    retryAmount: 1
+    timeout: 30m
+    ttlAfterFinished: 6h
+    mode: blocking
+    image: registry.example.test/tools/smooth:1.0.0
+    initContainer: { image: registry.example.test/tools/prepare-qa:1.0.0 }
+
+  - name: flink-metrics
+    type: prometheus
+    target: components
+    retryAmount: 1
+    timeout: 30m
+    ttlAfterFinished: 6h
+    mode: blocking
+    labels: { flink_scope: job }
+    metrics:
+      - name: job-running
+        query: 'max(flink_jobmanager_job_uptime{ {{ labels }} })'
+        minimum: 1
+        window: 5m
+      - name: failed-checkpoints
+        query: 'increase(flink_jobmanager_job_numberOfFailedCheckpoints{ {{ labels }} }[{{ window }}])'
+        maximum: 0
+        window: 5m
+        allowedFailedMeasurements: 1
+
+  - name: flink-errors
+    type: elasticsearch
+    target: components
+    retryAmount: 1
+    timeout: 30m
+    ttlAfterFinished: 6h
+    mode: blocking
+    checks:
+      - name: checkpoint-failure
+        query: { term: { event.code: FLINK_CHECKPOINT_FAILED } }
+        maximumCount: 0
+
+  - name: integration-health
+    type: http
+    target: stage
+    retryAmount: 1
+    timeout: 10m
+    ttlAfterFinished: 6h
+    mode: blocking
+    service: monitoring
+    checks:
+      - { name: integration-health, url: https://payment-integration.example.test/health, method: GET, expectedStatus: 200 }
+
+  - name: production-health
+    type: http
+    target: stage
+    retryAmount: 1
+    timeout: 10m
+    ttlAfterFinished: 6h
+    mode: blocking
+    service: monitoring
+    checks:
+      - { name: production-health, url: https://payment.example.test/health, method: GET, expectedStatus: 200 }
+
+  - name: organization-dev-policy
+    type: external
+    target: stage
+    resourceName: organization-dev-policy
+    kind: ClusterAnalysisTemplate
+    retryAmount: 1
+    timeout: 20m
+    ttlAfterFinished: 4h
+    mode: blocking
+    arguments:
+      - { name: freightName, required: true }
+      - { name: environment, required: true }
+
+  - name: production-policy
+    type: external
+    target: stage
+    resourceName: organization-production-policy
+    kind: ClusterAnalysisTemplate
+    retryAmount: 1
+    timeout: 20m
+    ttlAfterFinished: 4h
+    mode: blocking
+    arguments:
+      - { name: freightName, required: true }
+      - { name: environment, required: true }
+
+  - name: maintenance-proof-job
+    type: job
+    target: stage
+    retryAmount: 0
+    timeout: 10m
+    ttlAfterFinished: 2h
+    mode: dry-run
+    job:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: proof
+              image: registry.example.test/tools/validation:1.0.0
+              command: [sh, -c, 'echo validation complete']

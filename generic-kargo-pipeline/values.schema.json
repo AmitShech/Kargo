@@ -1,280 +1,62 @@
 {
   "$schema": "https://json-schema.org/draft-07/schema#",
-  "title": "generic-kargo-pipeline values",
   "type": "object",
   "additionalProperties": false,
-  "required": ["global", "warehouse", "sources", "pipeline"],
+  "required": ["global", "warehouse", "sources", "pipeline", "services", "analysisTemplates"],
   "properties": {
-    "nameOverride": { "type": "string" },
-    "fullnameOverride": { "type": "string" },
-    "global": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "labels": {
-          "type": "object",
-          "additionalProperties": { "type": ["string", "number", "boolean"] }
-        },
-        "annotations": {
-          "type": "object",
-          "additionalProperties": { "type": ["string", "number", "boolean"] }
-        }
-      }
-    },
-    "warehouse": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["name", "interval", "freightCreationPolicy"],
-      "properties": {
-        "name": { "type": "string", "minLength": 1 },
-        "interval": { "type": "string", "minLength": 1 },
-        "freightCreationPolicy": { "type": "string", "enum": ["Automatic", "Manual"] }
-      }
-    },
-    "sources": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["components", "deploymentGit"],
-      "properties": {
-        "componentDefaults": { "$ref": "#/definitions/componentDefaults" },
-        "components": {
-          "type": "array",
-          "items": { "$ref": "#/definitions/component" }
-        },
-        "deploymentGit": { "$ref": "#/definitions/deploymentGit" }
-      }
-    },
-    "pipeline": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["stages"],
-      "properties": {
-        "stages": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["prepareRelease", "dev", "integration", "preProduction", "production"],
-          "properties": {
-            "prepareRelease": { "$ref": "#/definitions/prepareReleaseStage" },
-            "dev": { "$ref": "#/definitions/deploymentStage" },
-            "integration": { "$ref": "#/definitions/deploymentStage" },
-            "preProduction": { "$ref": "#/definitions/basicStage" },
-            "production": { "$ref": "#/definitions/deploymentStage" }
-          }
-        }
-      }
-    }
+    "nameOverride": {"type":"string"}, "fullnameOverride": {"type":"string"},
+    "global": {"$ref":"#/definitions/global"},
+    "warehouse": {"type":"object","required":["name","interval","freightCreationPolicy"],"additionalProperties":false,"properties":{"name":{"$ref":"#/definitions/name"},"interval":{"type":"string","minLength":1},"freightCreationPolicy":{"enum":["Automatic","Manual"]}}},
+    "sources": {"type":"object","required":["components","chartGit"],"additionalProperties":false,"properties":{"componentDefaults":{"type":"object","additionalProperties":true},"components":{"type":"array","items":{"$ref":"#/definitions/component"}},"chartGit":{"$ref":"#/definitions/chartGit"}}},
+    "pipeline": {"type":"object","required":["stages"],"additionalProperties":false,"properties":{"notifications":{"type":"object","additionalProperties":true},"stages":{"type":"object","additionalProperties":false,"required":["prepareRelease","dev","integration","preProduction","production"],"properties":{"prepareRelease":{"$ref":"#/definitions/stage"},"dev":{"$ref":"#/definitions/stage"},"integration":{"$ref":"#/definitions/stage"},"preProduction":{"$ref":"#/definitions/stage"},"production":{"$ref":"#/definitions/stage"}}}}},
+    "services": {"type":"object","additionalProperties":false,"properties":{"prometheus":{"$ref":"#/definitions/service"},"elasticsearch":{"$ref":"#/definitions/service"},"ai":{"$ref":"#/definitions/service"},"serviceNow":{"$ref":"#/definitions/service"},"gitLab":{"$ref":"#/definitions/service"},"mail":{"$ref":"#/definitions/service"},"monitoring":{"$ref":"#/definitions/service"}}},
+    "analysisTemplates": {"type":"array","items":{"$ref":"#/definitions/analysis"}}
   },
   "definitions": {
-    "componentDefaults": {
+    "global": {
       "type": "object",
+      "required": ["system", "dispatcher"],
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean" },
-        "image": {
+        "system": {
           "type": "object",
+          "required": ["name", "displayName", "owner"],
           "additionalProperties": false,
           "properties": {
-            "selectionStrategy": { "$ref": "#/definitions/imageSelectionStrategy" },
-            "allowedTags": { "type": "string" },
-            "semverConstraint": { "type": "string" },
-            "strictSemvers": { "type": "boolean" },
-            "discoveryLimit": { "type": "integer", "minimum": 1 }
-          }
-        }
-      }
-    },
-    "component": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["name", "image", "git", "releaseConfiguration", "valuesMapping"],
-      "properties": {
-        "name": { "type": "string", "minLength": 1 },
-        "enabled": { "type": "boolean" },
-        "image": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["artifactory"],
-          "properties": {
-            "artifactory": { "type": "string", "minLength": 1 },
-            "selectionStrategy": { "$ref": "#/definitions/imageSelectionStrategy" },
-            "allowedTags": { "type": "string" },
-            "semverConstraint": { "type": "string" },
-            "strictSemvers": { "type": "boolean" },
-            "discoveryLimit": { "type": "integer", "minimum": 1 }
+            "name": {"type":"string","minLength":1},
+            "displayName": {"type":"string","minLength":1},
+            "owner": {"type":"string","minLength":1}
           }
         },
-        "git": {
+        "labels": {"type":"object","additionalProperties":{"type":"string"}},
+        "annotations": {"type":"object","additionalProperties":{"type":"string"}},
+        "dispatcher": {
           "type": "object",
+          "required": ["image"],
           "additionalProperties": false,
-          "required": ["repository"],
           "properties": {
-            "repository": { "$ref": "#/definitions/gitRepository" }
-          }
-        },
-        "releaseConfiguration": {
-          "$ref": "#/definitions/releaseConfiguration"
-        },
-        "valuesMapping": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["tagPath"],
-          "properties": {
-            "tagPath": {
-              "type": "string",
-              "minLength": 1,
-              "pattern": "^[^{}]+$"
-            }
-          }
-        }
-      }
-    },
-    "releaseConfiguration": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["generationEnabled", "outputPath"],
-      "properties": {
-        "generationEnabled": { "type": "boolean" },
-        "devConfigurationPath": { "$ref": "#/definitions/workspaceRelativePath" },
-        "deploymentOverlayPath": { "$ref": "#/definitions/workspaceRelativePath" },
-        "outputPath": { "$ref": "#/definitions/workspaceRelativePath" }
-      },
-      "allOf": [
-        {
-          "if": {
-            "properties": {
-              "generationEnabled": { "const": true }
-            }
-          },
-          "then": {
-            "required": ["devConfigurationPath", "deploymentOverlayPath"]
-          }
-        }
-      ]
-    },
-    "deploymentGit": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["repository", "branches", "subscription", "paths"],
-      "properties": {
-        "repository": { "$ref": "#/definitions/gitRepository" },
-        "branches": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["source", "production"],
-          "properties": {
-            "source": { "type": "string", "minLength": 1 },
-            "production": { "type": "string", "minLength": 1 }
-          }
-        },
-        "subscription": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["enabled"],
-          "properties": {
-            "enabled": { "type": "boolean" },
-            "commitSelectionStrategy": { "type": "string", "minLength": 1 },
-            "discoveryLimit": { "type": "integer", "minimum": 1 },
-            "includePaths": { "$ref": "#/definitions/pathList" },
-            "excludePaths": { "$ref": "#/definitions/pathList" }
-          }
-        },
-        "paths": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["valuesFiles"],
-          "properties": {
-            "valuesFiles": {
+            "image": {
               "type": "object",
+              "required": ["repository", "tag", "pullPolicy"],
               "additionalProperties": false,
-              "required": ["base", "environment"],
               "properties": {
-                "base": { "type": "string", "minLength": 1 },
-                "environment": { "type": "string", "minLength": 1 }
+                "repository": {"type":"string"},
+                "tag": {"type":"string"},
+                "pullPolicy": {"enum":["Always","IfNotPresent","Never"]}
               }
             }
           }
         }
       }
     },
-    "gitRepository": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["url"],
-      "properties": {
-        "url": { "type": "string", "minLength": 1 },
-        "username": { "type": "string" },
-        "password": { "type": "string" }
-      }
-    },
-    "imageSelectionStrategy": {
-      "type": "string",
-      "enum": ["NewestBuild", "SemVer", "Lexical"]
-    },
-    "basicStage": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["name", "autoPromotionEnabled"],
-      "properties": {
-        "name": { "type": "string", "minLength": 1 },
-        "autoPromotionEnabled": { "type": "boolean" }
-      }
-    },
-    "prepareReleaseStage": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["name", "autoPromotionEnabled", "releaseBranch"],
-      "properties": {
-        "name": { "type": "string", "minLength": 1 },
-        "autoPromotionEnabled": { "type": "boolean" },
-        "releaseBranch": { "type": "string", "minLength": 1 }
-      }
-    },
-    "deploymentStage": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["name", "autoPromotionEnabled", "deployment", "verification"],
-      "properties": {
-        "name": { "type": "string", "minLength": 1 },
-        "autoPromotionEnabled": { "type": "boolean" },
-        "deployment": { "$ref": "#/definitions/deployment" },
-        "verification": { "$ref": "#/definitions/verification" }
-      }
-    },
-    "deployment": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["namespace", "argocd"],
-      "properties": {
-        "namespace": { "type": "string", "minLength": 1 },
-        "argocd": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["applicationName", "namespace"],
-          "properties": {
-            "applicationName": { "type": "string", "minLength": 1 },
-            "namespace": { "type": "string", "minLength": 1 }
-          }
-        }
-      }
-    },
-    "verification": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["enabled", "templateName", "timeout"],
-      "properties": {
-        "enabled": { "type": "boolean" },
-        "templateName": { "type": "string", "minLength": 1 },
-        "timeout": { "type": "string", "minLength": 1 }
-      }
-    },
-    "pathList": {
-      "type": "array",
-      "items": { "type": "string", "minLength": 1 }
-    },
-    "workspaceRelativePath": {
-      "type": "string",
-      "minLength": 1,
-      "pattern": "^[^/\\\\].*$"
-    }
+    "name":{"type":"string","minLength":1,"maxLength":63},
+    "repo":{"type":"object","required":["url"],"additionalProperties":false,"properties":{"url":{"type":"string","minLength":1},"username":{"type":"string"},"password":{"type":"string"}}},
+    "tagPolicy":{"type":"object","additionalProperties":false,"properties":{"allowedPatterns":{"type":"array","items":{"type":"string"}},"deniedPatterns":{"type":"array","items":{"type":"string"}}}},
+    "component":{"type":"object","required":["name","image","developerGit","releaseConfiguration","valuesMapping"],"additionalProperties":false,"properties":{"name":{"$ref":"#/definitions/name"},"enabled":{"type":"boolean"},"image":{"type":"object","required":["repository"],"additionalProperties":true,"properties":{"repository":{"type":"string","minLength":1}}},"developerGit":{"type":"object","required":["repository"],"additionalProperties":false,"properties":{"repository":{"$ref":"#/definitions/repo"}}},"qaGit":{"type":"object","additionalProperties":false,"properties":{"repository":{"$ref":"#/definitions/repo"},"branch":{"type":"string"},"path":{"type":"string"}}},"releaseConfiguration":{"type":"object","required":["generationEnabled","outputPath"],"additionalProperties":false,"properties":{"generationEnabled":{"type":"boolean"},"devConfigurationPath":{"type":"string"},"chartOverlayPath":{"type":"string"},"outputPath":{"type":"string","minLength":1}}},"valuesMapping":{"type":"object","required":["tagPath"],"additionalProperties":false,"properties":{"tagPath":{"type":"string","minLength":1,"pattern":"^[^{}]+$"}}},"tagPolicy":{"$ref":"#/definitions/tagPolicy"},"verification":{"type":"object","additionalProperties":true}}},
+    "chartGit":{"type":"object","required":["repository","branches","subscription"],"additionalProperties":false,"properties":{"repository":{"$ref":"#/definitions/repo"},"branches":{"type":"object","required":["source","production"],"additionalProperties":false,"properties":{"source":{"type":"string","minLength":1},"production":{"type":"string","minLength":1}}},"subscription":{"type":"object","required":["enabled"],"additionalProperties":true,"properties":{"enabled":{"type":"boolean"}}}}},
+    "stage":{"type":"object","required":["name","autoPromotionEnabled"],"additionalProperties":true,"properties":{"name":{"$ref":"#/definitions/name"},"autoPromotionEnabled":{"type":"boolean"},"freightSelectionPolicy":{"enum":["NewestFreight","MatchUpstream"]},"tagPolicy":{"$ref":"#/definitions/tagPolicy"}}},
+    "auth":{"type":"object","required":["type"],"additionalProperties":false,"properties":{"type":{"enum":["none","basic","apiKey"]},"username":{"type":"string"},"password":{"type":"string"},"headerName":{"type":"string"},"key":{"type":"string"},"prefix":{"type":"string"}}},
+    "service":{"type":"object","additionalProperties":true,"properties":{"endpoint":{"type":"string"},"allowInsecureHttp":{"type":"boolean"},"authentication":{"$ref":"#/definitions/auth"}}},
+    "analysis":{"type":"object","required":["name","type","target","retryAmount","timeout","ttlAfterFinished","mode"],"additionalProperties":true,"properties":{"name":{"$ref":"#/definitions/name"},"type":{"enum":["smooth","job","prometheus","http","elasticsearch","external"]},"target":{"enum":["components","stage"]},"retryAmount":{"type":"integer","minimum":0},"timeout":{"type":"string"},"ttlAfterFinished":{"type":"string"},"mode":{"enum":["blocking","dry-run"]}}}
   }
 }

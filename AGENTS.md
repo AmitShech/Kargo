@@ -1,6 +1,6 @@
 # Project Knowledge
 
-This repository contains a reusable Helm chart for a generic Kargo-based CD promotion pipeline. The chart is intended for deployment and promotion ownership only; application build and development stay outside this project.
+This repository contains a reusable Helm chart for a generic Kargo-based CD promotion pipeline. The chart owns release preparation, environment promotion, verification orchestration, and release-administration integrations. Application build and feature development remain outside this repository.
 
 Repository:
 
@@ -14,188 +14,288 @@ Chart path:
 generic-kargo-pipeline/
 ```
 
-## Current Scope
+## Implementation Status
 
-The chart currently creates:
+Currently implemented chart resources include:
 
 - Kargo `Project`
 - Kargo `ProjectConfig`
 - Kargo `Warehouse`
-- Kargo `prepare-release` `Stage`
-- Kubernetes Git credential `Secret` resources
+- all five pipeline Stages: Prepare-release, Dev, Integration, Pre-production, and Production
+- managed Smooth, Job, Prometheus, HTTP, Elasticsearch, external-reference, and dispatcher `AnalysisTemplate` resources
+- Git and HTTP credential Secrets
+- chart-side AI, ServiceNow, GitLab, mail, and monitoring integration contracts
 
-Do not add these until explicitly requested:
+Dispatcher execution remains an external runtime prerequisite: the chart renders its Jobs, RBAC, and configuration contract but does not build the dispatcher image. Live external API and cluster compatibility are not proven by Helm rendering.
 
-- Kargo `Stage` resources other than `prepare-release`
-- Kargo verification resources or `AnalysisTemplate` resources
-- native Kargo `spec.verification`
-- Argo CD deployment promotion steps
-- ServiceNow API integration
-- GitLab merge request API integration
-- cleanup or undeploy logic
+Do not claim a designed resource exists until its template and validation are present. Implement future Stages and integrations incrementally from the files under `project/`.
 
 ## Intended Flow
 
 ```text
-Warehouse detects a release source
+Warehouse discovers standalone Freight
         |
         v
 prepare-release
+  build one immutable release commit
+  record changed component tags
         |
         v
 dev
-  deploy through Argo CD
-  run native Kargo verification using an OpenShift QA Job
+  deploy exact commit through Argo CD
+  optionally run Smooth QA for selected components
         |
         v
 integration
-  deploy through Argo CD
-  run native Kargo verification using integration tests, metrics, logs, and health checks
+  deploy the same commit through Argo CD
+  optionally validate all Flink components with Prometheus and Elasticsearch
         |
         v
 pre-production
-  create ServiceNow change
-  create GitLab merge request to master
+  require official tags
+  generate an AI release summary
+  create independent ServiceNow and GitLab records
         |
         v
 production
-  manual promotion only
-  deploy through Argo CD
-  run production smoke verification
+  manual Freight selection
+  merge the prepared GitLab MR
+  deploy the exact tested commit
+  optionally run post-validation
+  update ServiceNow and send outcome notifications
 ```
 
-There is no environment cleanup or undeploy step yet.
+## Non-negotiable Architecture Rules
 
-## Architecture Rules
-
-- Use native Kargo `spec.verification` after Dev, Integration, and optionally Production promotions when Stages are added.
-- Verification must not be implemented as a promotion step.
-- Each deployment environment has one Kargo Stage and one Argo CD Application:
-  - `dev` Stage -> dev Argo CD Application
-  - `integration` Stage -> integration Argo CD Application
-  - `production` Stage -> production Argo CD Application
+- Each Freight is standalone. Release preparation must use only artifacts in the target Freight, never another Freight or Stage history.
+- The same immutable application candidate moves through environments. Do not rebuild or replace images between Stages.
+- Preserve component tag, image digest, developer Git tag/commit, chart Git input commit, release branch, and release commit.
+- A component image tag equals its developer Git tag.
+- `valuesMapping.tagPath` is a literal YAML path. Helm must not evaluate it.
+- Dev, Integration, and Production each control exactly one existing Argo CD Application by `applicationName`.
+- Argo CD Applications own their destination namespaces; do not duplicate destination namespace values in this chart.
 - `prepare-release` and `pre-production` do not control Argo CD Applications.
-- Everything before Production should be automatic.
-- Production auto-promotion must default to disabled.
-- A user must manually promote prepared Freight to Production.
-- The same immutable release candidate must move through all environments.
-- Preserve image tag, image digest, release branch, release commit, and Helm/configuration revision.
-- Environment-specific values may change, but the application artifact must not be rebuilt or replaced between environments.
-- The chart must stay generic. Application-specific settings belong in values, not hard-coded templates.
-- Component image tag equals component developer Git tag.
-- Keep `valuesMapping.tagPath` literal.
+- Explicit verification uses native Kargo `spec.verification`, never a promotion step.
+- Verification is optional. Disabled verification must not require template-specific values or fail rendering.
+- Active templates trigger strict, type-specific validation.
+- Everything before Production is automatic.
+- Production auto-promotion defaults to false, and the user explicitly selects Freight.
+- Production deploys the exact tested commit SHA, not a branch head or newest commit.
+- Failed Freight is blocked downstream but does not prevent newer Freight from being created or promoted after the active verification terminates.
+- The chart stays generic. System-specific repositories, labels, queries, thresholds, prompts, fields, endpoints, and credentials belong in values.
 
-## Current File Layout
+## Tag Lifecycle
 
-```text
-generic-kargo-pipeline/
-|-- Chart.yaml
-|-- README.md
-|-- values.schema.json
-|-- values.yaml
-`-- templates/
-    |-- NOTES.txt
-    |-- _helpers.tpl
-    |-- project-config.yaml
-    |-- project.yaml
-    |-- warehouse.yaml
-    |-- secrets/
-    |   |-- component-dev-git.yaml
-    |   `-- deployment-git.yaml
-    `-- stages/
-        `-- prepare-release.yaml
-```
+Development tags such as `dev-2.4.0` may pass through Prepare-release, Dev, and Integration. Only official tags may pass Pre-production and Production.
 
-Project knowledge files:
+After a development candidate succeeds, developers create:
+
+- an official image tag pointing to the exact tested image digest
+- an official developer Git tag pointing to the same source commit
+
+The official tag creates new Freight and repeats Dev and Integration, giving the official candidate its own verification history. Kargo must not build images or invent official tags.
+
+Every Stage supports a values-driven `tagPolicy`. Denied patterns win over allowed patterns. Component policies may add stricter restrictions.
+
+## Prepare-release Rules
+
+For each enabled component, read the tag from the chart Git commit contained in the same Freight at:
 
 ```text
-AGENTS.md
-project/
-|-- prepare-release.md
-|-- project.md
-`-- warehouse.md
+releaseConfiguration.outputPath + valuesMapping.tagPath
 ```
 
-## Values Model
+Compare it with the selected Freight tag before merging or updating files. Store changed-component metadata on Freight. Missing files or tag paths fail preparation.
 
-The chart uses these top-level sections:
+Use `sources.chartGit` as the approved target name for deployment/chart configuration Git. Existing `sources.deploymentGit` code is migration work and must be renamed consistently when implemented. Use `chartOverlayPath` instead of `deploymentOverlayPath` in the approved interface.
+
+## Dev Verification Rules
+
+- Smooth QA definitions are per component and live in separate QA Git repositories.
+- QA uses a configured branch; it is intentionally not snapshotted.
+- QA directory `path` defaults to `.`; the filename is always `.smooth.yaml`.
+- Smooth runs directly with chart-owned behavior equivalent to `smooth run --file .smooth.yaml --skip-install`.
+- Argo CD remains the sole application deployment owner.
+- The Kargo dispatcher, not Smooth, selects components.
+- `runForChangedComponentsOnly: true` runs only components recorded as changed by Prepare-release.
+- `false` runs every enabled component.
+- `parallelismLimit` bounds simultaneous child AnalysisRuns.
+- Retry failed components individually, wait for all child results, and aggregate once.
+
+## Integration Verification Rules
+
+- Integration processes a copy of Production input and writes only to isolated Integration sinks.
+- Validate every enabled Flink component for every Freight, including configuration-only Freight.
+- Wait for Argo CD health, capture `verificationStartedAt`, then wait `initialDelay`.
+- Run checks for configured `duration` at configured `interval`; calculate Argo measurement count internally.
+- PromQL contains its aggregation. Do not add decorative aggregation fields.
+- Merge Prometheus labels from service, template, target, and metric; the most specific value wins.
+- Query only explicit Elasticsearch failure conditions; do not add a catch-all error query.
+- Filter Elasticsearch from the fixed verification start timestamp through the current check time.
+- Missing telemetry, authentication errors, provider errors, and invalid results fail blocking checks.
+- Apply Stage-level failed-measurement tolerance with per-check overrides.
+- Support blocking, dry-run, and Stage-level `dryRunAll` behavior.
+
+Customer output validation is deferred for later design.
+
+## Pre-production Rules
+
+- Enforce official tag policy before any external call.
+- AI enrichment is optional. When enabled, call an internal HTTP AI agent with structured, redacted release evidence and an explicit field-by-field prompt.
+- ServiceNow and GitLab may be enabled without AI. In that mode ServiceNow uses values-defined `fixedFields`, while GitLab requires values-defined fixed `title` and `description`.
+- AI output fields are `title`, `description`, `reason`, `impact`, `startTime`, and `endTime`.
+- The AI proposes a change window three working days forward, skipping Friday, Saturday, and organizational holidays.
+- Timezone, start time, and duration are values-driven; the pipeline validates returned timestamps.
+- ServiceNow fixed fields are an open map. AI field mapping is optional and partial; unspecified names remain unchanged. Fixed values win.
+- GitLab and ServiceNow records are independent and never cross-link.
+- Create/reuse both records idempotently and store their titles, URLs, and machine identifiers on Freight.
+- Pre-production creates the MR but does not wait for approval or merge.
+- Configure squash off, require a commit-preserving merge, and request branch deletion after merge.
+
+## Production Rules
+
+- Production is manual and may wait indefinitely.
+- The user explicitly selects the prepared Freight.
+- Recheck official tag policy.
+- Consume the MR metadata produced by Pre-production; do not duplicate MR lifecycle configuration under Production.
+- Merge the MR before deployment, accept an already merged expected revision, and fail on mismatch, conflict, or closed-unmerged state.
+- Verify the Production branch contains the tested commit.
+- Deploy that exact commit SHA through Argo CD.
+- Verification failure sends enabled email, updates ServiceNow, and creates a monitoring alert only in Production.
+- Verification success sends enabled email and updates the same ServiceNow change.
+- Do not implement automatic rollback yet.
+
+## Notification Rules For Self-managed Kargo
+
+The target environment is self-managed Kargo v1.10, not Akuity Platform. Do not depend on Akuity-only `EventRouter` or `MessageChannel` resources.
+
+- Promotion-only Stages use conditional success/failure notification steps.
+- Deployment Stages use chart-owned verification dispatchers to send enabled emails after result aggregation.
+- Promotion failures occurring before verification use conditional failure steps.
+- Notification delivery failures are retried and recorded but do not replace the original promotion or verification result.
+- An outcome sends email only when `outcomes.<result>.notifications.email.enabled` is true.
+- Resolve subject/body from the outcome first, then global success/failure message defaults. Enabled email with no resolvable subject/body fails Helm validation.
+
+## Values Interface Direction
+
+Approved top-level order:
+
+```yaml
+global: {}
+warehouse: {}
+sources: {}
+pipeline: {}
+services: {}
+analysisTemplates: []
+```
+
+Key structure:
 
 ```yaml
 global:
-  labels: {}
-  annotations: {}
-
-warehouse:
-  name: app-images
-  interval: 10m
-  freightCreationPolicy: Automatic
+  system:
+    name: my-system
+    displayName: My System
+    owner: application-team
 
 sources:
   componentDefaults: {}
   components: []
-  deploymentGit: {}
+  chartGit: {}
 
 pipeline:
-  stages: {}
+  notifications: {}
+  stages:
+    prepareRelease: {}
+    dev: {}
+    integration: {}
+    preProduction: {}
+    production: {}
+
+services:
+  prometheus: {}
+  elasticsearch: {}
+  ai: {}
+  serviceNow: {}
+  gitLab: {}
+  mail: {}
+  monitoring: {}
+
+analysisTemplates: []
 ```
 
-There is no top-level `application.name` and no top-level `integrations` section in the current foundation.
-
-## Pipeline Model
-
-Promotion configuration is under `pipeline.stages`.
+AnalysisTemplate entries use:
 
 ```yaml
-pipeline:
-  stages:
-    prepareRelease:
-      name: prepare-release
-      autoPromotionEnabled: true
-      releaseBranch: release/${{ imageFrom(vars.imageRepository).Tag }}
-    dev:
-      name: dev
-      autoPromotionEnabled: true
-      deployment: {}
-      verification: {}
-    integration:
-      name: integration
-      autoPromotionEnabled: true
-      deployment: {}
-      verification: {}
-    preProduction:
-      name: pre-production
-      autoPromotionEnabled: true
-    production:
-      name: production
-      autoPromotionEnabled: false
-      deployment: {}
-      verification: {}
+- name: component-qa
+  type: smooth # smooth, job, prometheus, http, elasticsearch, external
+  target: components # or stage
+  retryAmount: 1
+  timeout: 30m
+  ttlAfterFinished: 6h
+  mode: blocking
 ```
 
-Deployment settings exist only under `dev`, `integration`, and `production`. Verification settings exist only under deployment stages and are placeholders for future resources. `prepareRelease.releaseBranch` is a literal Kargo expression used by the prepare-release Stage. Helm must not evaluate it.
+Stages reference template names and may override fields supported by that template type. Stage overrides win. Unknown or incompatible overrides fail validation. External definitions reference existing `AnalysisTemplate` or `ClusterAnalysisTemplate` resources and are not created by Helm.
+
+## Services And Credentials
+
+HTTP service authentication types:
+
+```text
+none
+basic
+apiKey
+```
+
+An HTTP endpoint requires `allowInsecureHttp: true`; otherwise HTTP fails validation. `basic` requires username and password. `apiKey` requires header name and key, with an optional prefix.
+
+Every configured Git repository receives a Kubernetes Git credential Secret:
+
+- chart Git
+- every component developer Git
+- every component QA Git
+
+Repository URL is always included. Username/password must both be set or both empty. Secrets render even when credentials are empty. Never place credentials directly in Stages, AnalysisTemplates, Jobs, logs, Freight metadata, or committed example values.
+
+## Project Documentation
+
+```text
+project/
+|-- project.md
+|-- warehouse.md
+|-- spec.md
+|-- prepare-release.md
+|-- dev.md
+|-- integration.md
+|-- pre-production.md
+`-- production.md
+```
+
+Each Stage file is the design and task authority for its implementation.
+
+## Explicitly Deferred
+
+Do not add these until requested in a later implementation task:
+
+- customer output-validation automation
+- automatic rollback
+- application/environment undeploy or cleanup
+- Stage resources beyond the implementation task currently authorized
+
+The one approved cleanup is deletion of the temporary release branch by GitLab after its merge.
 
 ## Validation Workflow
 
-Run:
+Run after chart implementation changes:
 
 ```bash
 helm lint ./generic-kargo-pipeline
 helm template my-app-promotion ./generic-kargo-pipeline --namespace my-app-promotion
 ```
 
-Known benign Helm lint output:
+Known benign lint output:
 
 ```text
 [INFO] Chart.yaml: icon is recommended
 ```
-
-## User Preferences
-
-- Keep the chart generic.
-- Prefer values-driven configuration over hard-coded application settings.
-- Use `sources.deploymentGit` for deployment/chart configuration Git.
-- Use `sources.components` for component image and developer Git sources.
-- Keep component defaults built into `_helpers.tpl`; allow optional `sources.componentDefaults` only for overrides.
-- Allow an intentionally empty Warehouse.
-- Do not add cleanup yet.
-- Do not add the remaining Stages or verification templates until explicitly requested.

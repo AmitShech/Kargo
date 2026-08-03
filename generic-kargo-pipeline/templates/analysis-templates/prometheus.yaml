@@ -1,0 +1,42 @@
+{{- range $definition := .Values.analysisTemplates }}{{- $active := false -}}{{- range $stage := values $.Values.pipeline.stages -}}{{- range $reference := default list (dig "verification" "analysisTemplates" list $stage) -}}{{- if and $reference.enabled (eq $reference.name $definition.name) -}}{{- $active = true -}}{{- end -}}{{- end -}}{{- end -}}{{- if and $active (eq $definition.type "prometheus") }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: {{ $definition.name | quote }}
+  labels: {{- include "generic-kargo-pipeline.labels" $ | nindent 4 }}
+    {{- include "generic-kargo-pipeline.applicationLabels" $ | nindent 4 }}
+  annotations: { generic-kargo-pipeline/type: prometheus }
+spec:
+  args:
+    - { name: freightName, value: "" }
+    - { name: releaseCommit, value: "" }
+    - { name: verificationStartedAt, value: "" }
+    {{- if ne (default "none" $.Values.services.prometheus.authentication.type) "none" }}
+    - name: authHeaderName
+      valueFrom: { secretKeyRef: { name: {{ include "generic-kargo-pipeline.httpServiceSecretName" "prometheus" | quote }}, key: headerName } }
+    - name: authHeaderValue
+      valueFrom: { secretKeyRef: { name: {{ include "generic-kargo-pipeline.httpServiceSecretName" "prometheus" | quote }}, key: headerValue } }
+    {{- end }}
+  metrics:
+  {{ range $metric := $definition.metrics }}
+    {{ $labels := mergeOverwrite (deepCopy (default dict $.Values.services.prometheus.labels)) (default dict $definition.labels) (default dict $metric.labels) }}
+    {{ $parts := list }}{{ range $key := keys $labels | sortAlpha }}{{ $parts = append $parts (printf "%s=%q" $key (printf "%v" (get $labels $key))) }}{{ end }}
+    {{ $query := replace "{{ labels }}" (join "," $parts) $metric.query }}{{ $query = replace "{{ window }}" (default "5m" $metric.window) $query }}
+    {{ $failures := list "len(result) == 0" }}
+    {{ if hasKey $metric "minimum" }}{{ $failures = append $failures (printf "any(result, # < %v)" $metric.minimum) }}{{ end }}
+    {{ if hasKey $metric "maximum" }}{{ $failures = append $failures (printf "any(result, # > %v)" $metric.maximum) }}{{ end }}
+    - name: {{ $metric.name | quote }}
+      interval: {{ default "1m" $metric.interval | quote }}
+      count: {{ default 1 $metric.count }}
+      failureLimit: {{ add1 (default 0 $metric.allowedFailedMeasurements) }}
+      failureCondition: {{ default (join " || " $failures) $metric.failureCondition | quote }}
+      provider:
+        prometheus:
+          address: {{ $.Values.services.prometheus.endpoint | quote }}
+          {{- if ne (default "none" $.Values.services.prometheus.authentication.type) "none" }}
+          headers: [{ key: "{{ `{{ args.authHeaderName }}` }}", value: "{{ `{{ args.authHeaderValue }}` }}" }]
+          {{- end }}
+          query: {{ $query | quote }}
+  {{- end }}
+{{ end }}{{ end }}

@@ -1,0 +1,40 @@
+{{- $stage := .Values.pipeline.stages.production -}}
+{{- if and $stage.verification.enabled $stage.verification.analysisTemplates }}
+{{- $success := default dict $stage.outcomes.success -}}{{- $failure := default dict $stage.outcomes.failure -}}
+{{- $successEmail := default dict (get (default dict $success.notifications) "email") -}}{{- $failureEmail := default dict (get (default dict $failure.notifications) "email") -}}
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: {{ printf "%s-production-dispatcher" (include "generic-kargo-pipeline.fullname" .) | include "generic-kargo-pipeline.normalizeName" | quote }}
+  labels: {{- include "generic-kargo-pipeline.labels" . | nindent 4 }}
+    {{- include "generic-kargo-pipeline.applicationLabels" . | nindent 4 }}
+spec:
+  args:
+    - name: freightName
+    - name: releaseCommit
+    - name: serviceNowSysId
+      value: ""
+  metrics:
+    - name: verify-and-finalize
+      provider:
+        job:
+          spec:
+            backoffLimit: 0
+            template:
+              spec:
+                serviceAccountName: {{ printf "%s-dispatcher" (include "generic-kargo-pipeline.fullname" .) | include "generic-kargo-pipeline.normalizeName" | quote }}
+                restartPolicy: Never
+                containers:
+                  - name: dispatcher
+                    image: {{ printf "%s:%s" .Values.global.dispatcher.image.repository .Values.global.dispatcher.image.tag | quote }}
+                    imagePullPolicy: {{ .Values.global.dispatcher.image.pullPolicy | quote }}
+                    env:
+                      - name: DISPATCHER_CONFIG
+                        value: {{ toJson (dict "parentName" "{{ args.freightName }}-production" "releaseCommit" "{{ args.releaseCommit }}" "serviceNowSysId" "{{ args.serviceNowSysId }}" "templates" $stage.verification.analysisTemplates "outcomes" (dict "success" (dict "email" $successEmail "serviceNow" (default dict $success.serviceNow)) "failure" (dict "email" $failureEmail "serviceNow" (default dict $failure.serviceNow) "monitoring" (default dict $failure.monitoring)))) | quote }}
+                      {{- range $serviceName := list "serviceNow" "mail" "monitoring" }}{{- $service := get $.Values.services $serviceName }}{{- if ne (default "none" $service.authentication.type) "none" }}
+                      - name: {{ printf "%s_AUTH_HEADER_NAME" $serviceName | upper }}
+                        valueFrom: { secretKeyRef: { name: {{ include "generic-kargo-pipeline.httpServiceSecretName" $serviceName | quote }}, key: headerName } }
+                      - name: {{ printf "%s_AUTH_HEADER_VALUE" $serviceName | upper }}
+                        valueFrom: { secretKeyRef: { name: {{ include "generic-kargo-pipeline.httpServiceSecretName" $serviceName | quote }}, key: headerValue } }
+                      {{- end }}{{- end }}
+{{- end }}
