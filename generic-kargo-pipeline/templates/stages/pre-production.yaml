@@ -1,4 +1,5 @@
 {{- $stage := .Values.pipeline.stages.preProduction -}}
+{{- $components := include "generic-kargo-pipeline.components" . | fromYamlArray -}}
 {{- $freight := include "generic-kargo-pipeline.kargoExpression" "ctx.targetFreight.name" -}}
 {{- $gitLabApiProject := urlquery $stage.gitLab.projectPath -}}
 apiVersion: kargo.akuity.io/v1alpha1
@@ -17,7 +18,7 @@ spec:
   promotionTemplate:
     spec:
       steps:
-{{ include "generic-kargo-pipeline.tagPolicySteps" (dict "stageKey" "pre-production" "stage" $stage "components" .Values.sources.components) | nindent 8 }}
+{{ include "generic-kargo-pipeline.tagPolicySteps" (dict "stageKey" "pre-production" "stage" $stage "components" $components) | nindent 8 }}
         {{- if $stage.ai.enabled }}
         - uses: http
           as: generate-ai-summary

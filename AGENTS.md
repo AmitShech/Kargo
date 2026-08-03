@@ -28,7 +28,7 @@ Currently implemented chart resources include:
 
 Dispatcher execution remains an external runtime prerequisite: the chart renders its Jobs, RBAC, and configuration contract but does not build the dispatcher image. Live external API and cluster compatibility are not proven by Helm rendering.
 
-Do not claim a designed resource exists until its template and validation are present. Implement future Stages and integrations incrementally from the files under `project/`.
+Do not claim a designed resource exists until its template and validation are present. Maintain Stage behavior against the design authorities under `docs/stages/`.
 
 ## Intended Flow
 
@@ -261,15 +261,18 @@ Repository URL is always included. Username/password must both be set or both em
 ## Project Documentation
 
 ```text
-project/
-|-- project.md
+docs/
+|-- README.md
+|-- architecture.md
 |-- warehouse.md
 |-- spec.md
-|-- prepare-release.md
-|-- dev.md
-|-- integration.md
-|-- pre-production.md
-`-- production.md
+|-- chart-completeness-audit.md
+`-- stages/
+    |-- prepare-release.md
+    |-- dev.md
+    |-- integration.md
+    |-- pre-production.md
+    `-- production.md
 ```
 
 Each Stage file is the design and task authority for its implementation.

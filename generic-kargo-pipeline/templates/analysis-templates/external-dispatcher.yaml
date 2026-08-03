@@ -1,4 +1,5 @@
 {{- $definitions := dict -}}{{- range .Values.analysisTemplates -}}{{- $_ := set $definitions .name . -}}{{- end -}}
+{{- $components := include "generic-kargo-pipeline.components" . | fromYamlArray -}}
 {{- range $stageKey := list "dev" "integration" -}}{{- $stage := get $.Values.pipeline.stages $stageKey -}}{{- $active := list -}}
 {{- range $reference := $stage.verification.analysisTemplates -}}{{- $definition := get $definitions $reference.name -}}{{- if and $reference.enabled $definition (eq $definition.type "external") -}}{{- $active = append $active (dict "reference" $reference "definition" $definition) -}}{{- end -}}{{- end -}}
 {{- if and $stage.verification.enabled $active }}
@@ -38,6 +39,6 @@ spec:
                         {{- $mode := $definition.mode -}}{{- if hasKey $overrides "mode" -}}{{- $mode = $overrides.mode -}}{{- end -}}
                         {{- $allowedFailedMeasurements := 0 -}}{{- if hasKey $definition "allowedFailedMeasurements" -}}{{- $allowedFailedMeasurements = $definition.allowedFailedMeasurements -}}{{- end -}}{{- if hasKey $overrides "allowedFailedMeasurements" -}}{{- $allowedFailedMeasurements = $overrides.allowedFailedMeasurements -}}{{- end -}}
                         {{- $base := dict "name" $definition.name "resourceName" (default $definition.name $definition.resourceName) "kind" (default $definition.kind $reference.kind) "target" $definition.target "arguments" $arguments "retryAmount" $retryAmount "timeout" $timeout "ttlAfterFinished" $ttlAfterFinished "mode" $mode "allowedFailedMeasurements" $allowedFailedMeasurements -}}
-                        {{- if eq $definition.target "components" -}}{{- range $component := $.Values.sources.components -}}{{- if $component.enabled -}}{{- $entry := deepCopy $base -}}{{- $_ := set $entry "component" $component.name -}}{{- $_ := set $entry "name" (printf "%s-%s" $definition.name $component.name) -}}{{- $entries = append $entries $entry -}}{{- end -}}{{- end -}}{{- else -}}{{- $entries = append $entries $base -}}{{- end -}}{{- end }}
+                        {{- if eq $definition.target "components" -}}{{- range $component := $components -}}{{- if $component.enabled -}}{{- $entry := deepCopy $base -}}{{- $_ := set $entry "component" $component.name -}}{{- $_ := set $entry "name" (printf "%s-%s" $definition.name $component.name) -}}{{- $entries = append $entries $entry -}}{{- end -}}{{- end -}}{{- else -}}{{- $entries = append $entries $base -}}{{- end -}}{{- end }}
                         value: {{ toJson (dict "parentName" (printf "{{ args.freightName }}-%s-external" $stageKey) "templates" $entries) | quote }}
 {{ end }}{{ end }}

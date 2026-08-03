@@ -129,4 +129,4 @@ The suite performs Helm linting, default and full-feature rendering, negative va
 
 The repository is intentionally chart-only. Runtime behavior of the dispatcher image and live integrations must be tested in the target environment. Customer output validation, automatic rollback, and environment/application cleanup are intentionally deferred. GitLab deletion of the temporary release branch after merge is the only configured cleanup.
 
-Detailed design documents and the completeness audit are available in the repository's `project/` directory.
+Detailed design documents and the completeness audit are indexed in [`docs/README.md`](../docs/README.md).

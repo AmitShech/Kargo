@@ -1,5 +1,6 @@
 {{- include "generic-kargo-pipeline.validateValues" . -}}
 {{- $stage := .Values.pipeline.stages.dev -}}
+{{- $components := include "generic-kargo-pipeline.components" . | fromYamlArray -}}
 {{- $repo := .Values.sources.chartGit.repository.url -}}
 {{- $revision := include "generic-kargo-pipeline.kargoExpression" "freightMetadata(ctx.targetFreight.name)['release-commit']" -}}
 {{- $definitions := dict -}}{{- range .Values.analysisTemplates }}{{- $_ := set $definitions .name . -}}{{- end -}}
@@ -22,7 +23,7 @@ spec:
   promotionTemplate:
     spec:
       steps:
-{{ include "generic-kargo-pipeline.tagPolicySteps" (dict "stageKey" "dev" "stage" $stage "components" .Values.sources.components) | nindent 8 }}
+{{ include "generic-kargo-pipeline.tagPolicySteps" (dict "stageKey" "dev" "stage" $stage "components" $components) | nindent 8 }}
         - uses: argocd-update
           as: deploy-exact-release
           config:

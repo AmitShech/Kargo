@@ -1,4 +1,5 @@
 {{- $stage := .Values.pipeline.stages.integration -}}
+{{- $components := include "generic-kargo-pipeline.components" . | fromYamlArray -}}
 {{- $definitions := dict -}}{{- range .Values.analysisTemplates }}{{- $_ := set $definitions .name . -}}{{- end -}}
 {{- $active := list -}}{{- range $stage.verification.analysisTemplates }}{{- $d := get $definitions .name }}{{- if and .enabled $d (eq $d.target "components") (or (eq $d.type "prometheus") (eq $d.type "elasticsearch")) }}{{- $active = append $active $d }}{{- end }}{{- end -}}
 {{- if and $stage.verification.enabled $active }}
@@ -36,7 +37,7 @@ spec:
                       - name: DISPATCHER_CONFIG
                         {{- $entries := list -}}
                         {{- range $definition := $active -}}
-                          {{- range $component := $.Values.sources.components -}}{{- if $component.enabled -}}
+                          {{- range $component := $components -}}{{- if $component.enabled -}}
                             {{- $target := dict -}}{{- range $candidate := default list $definition.targets -}}{{- if eq $candidate.component $component.name -}}{{- $target = $candidate -}}{{- end -}}{{- end -}}
                             {{- $checks := list -}}
                             {{- if eq $definition.type "prometheus" -}}
@@ -64,7 +65,7 @@ spec:
                             {{- $entries = append $entries (dict "name" (printf "%s-%s" $component.name $definition.name) "component" $component.name "provider" $definition.type "template" $definition.name "retryAmount" $definition.retryAmount "checks" $checks "dryRun" $dryRun "args" (dict "freightName" "{{ args.freightName }}" "verificationStartedAt" "{{ args.verificationStartedAt }}" "componentName" $component.name)) -}}
                           {{- end -}}{{- end -}}
                         {{- end -}}
-{{ "\n" }}                        value: {{ toJson (dict "parentName" "{{ args.freightName }}-integration" "verificationStartedAt" "{{ args.verificationStartedAt }}" "initialDelay" $stage.verification.initialDelay "duration" $stage.verification.duration "interval" $stage.verification.interval "maxMeasurements" (default 1000 $stage.verification.maxMeasurements) "parallelism" (len $.Values.sources.components) "changedOnly" false "dryRunAll" $stage.verification.dryRunAll "components" $entries "mail" (dict "endpoint" $.Values.services.mail.endpoint "recipients" $.Values.pipeline.notifications.email.recipients "defaults" $.Values.pipeline.notifications.email.defaults "outcomes" $stage.outcomes)) | quote }}
+{{ "\n" }}                        value: {{ toJson (dict "parentName" "{{ args.freightName }}-integration" "verificationStartedAt" "{{ args.verificationStartedAt }}" "initialDelay" $stage.verification.initialDelay "duration" $stage.verification.duration "interval" $stage.verification.interval "maxMeasurements" (default 1000 $stage.verification.maxMeasurements) "parallelism" (len $components) "changedOnly" false "dryRunAll" $stage.verification.dryRunAll "components" $entries "mail" (dict "endpoint" $.Values.services.mail.endpoint "recipients" $.Values.pipeline.notifications.email.recipients "defaults" $.Values.pipeline.notifications.email.defaults "outcomes" $stage.outcomes)) | quote }}
                       {{- if ne (default "none" $.Values.services.mail.authentication.type) "none" }}
                       - name: MAIL_AUTH_HEADER_NAME
                         valueFrom: { secretKeyRef: { name: {{ include "generic-kargo-pipeline.httpServiceSecretName" "mail" | quote }}, key: headerName } }

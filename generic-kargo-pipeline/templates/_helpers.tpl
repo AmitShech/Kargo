@@ -89,6 +89,12 @@
 enabled: true
 tagPolicy: {allowedPatterns: [], deniedPatterns: []}
 {{- end -}}
+{{- define "generic-kargo-pipeline.components" -}}
+{{- $builtIn := include "generic-kargo-pipeline.componentDefaults" . | fromYaml -}}
+{{- $defaults := mergeOverwrite (deepCopy $builtIn) (default dict .Values.sources.componentDefaults) -}}
+{{- $components := list -}}{{- range .Values.sources.components -}}{{- $components = append $components (mergeOverwrite (deepCopy $defaults) .) -}}{{- end -}}
+{{- toYaml $components -}}
+{{- end -}}
 {{- define "generic-kargo-pipeline.labels" -}}
 {{- with .Values.global.labels }}{{ toYaml . }}{{ end }}
 helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | quote }}
@@ -116,6 +122,7 @@ kargo.akuity.io/project: {{ include "generic-kargo-pipeline.projectName" . | quo
 {{- if eq $t "apiKey" -}}{{- if or (empty $a.headerName) (empty $a.key) -}}{{ fail (printf "services.%s apiKey authentication requires headerName and key" .name) }}{{- end -}}{{- end -}}
 {{- end -}}
 {{- define "generic-kargo-pipeline.validateValues" -}}
+{{- $components := include "generic-kargo-pipeline.components" . | fromYamlArray -}}
 {{- $componentAllowed := list "enabled" "tagPolicy" "name" "image" "developerGit" "qaGit" "releaseConfiguration" "valuesMapping" "verification" -}}
 {{- range $field := keys .Values.sources.componentDefaults -}}{{- if not (has $field $componentAllowed) }}{{ fail (printf "sources.componentDefaults contains unknown field %q" $field) }}{{ end -}}{{- end -}}
 {{- $stageAllowed := dict "prepareRelease" (list "name" "autoPromotionEnabled" "freightSelectionPolicy" "releaseBranch" "tagPolicy" "outcomes") "dev" (list "name" "autoPromotionEnabled" "freightSelectionPolicy" "argocd" "tagPolicy" "verification" "outcomes") "integration" (list "name" "autoPromotionEnabled" "freightSelectionPolicy" "argocd" "tagPolicy" "verification" "outcomes") "preProduction" (list "name" "autoPromotionEnabled" "freightSelectionPolicy" "tagPolicy" "ai" "serviceNow" "gitLab" "outcomes") "production" (list "name" "autoPromotionEnabled" "freightSelectionPolicy" "argocd" "tagPolicy" "verification" "outcomes") -}}
@@ -129,7 +136,7 @@ kargo.akuity.io/project: {{ include "generic-kargo-pipeline.projectName" . | quo
 {{- range $definition := .Values.analysisTemplates -}}{{- $allowed := concat $analysisCommon (default list (get $analysisFields $definition.type)) -}}{{- range $field := keys $definition -}}{{- if not (has $field $allowed) }}{{ fail (printf "analysisTemplate %q of type %s contains incompatible field %q" $definition.name $definition.type $field) }}{{ end -}}{{- end -}}{{- end -}}
 {{- range $definition := .Values.analysisTemplates -}}
 {{- $targetAllowed := list "component" "labels" "filters" "index" -}}{{- range $target := default list $definition.targets -}}{{- range $field := keys $target -}}{{- if not (has $field $targetAllowed) }}{{ fail (printf "analysisTemplate %q target contains unknown field %q" $definition.name $field) }}{{ end -}}{{- end -}}{{- end -}}
-{{- $targetComponents := dict -}}{{- range $target := default list $definition.targets -}}{{- if empty $target.component }}{{ fail (printf "analysisTemplate %q target requires component" $definition.name) }}{{ end -}}{{- if hasKey $targetComponents $target.component }}{{ fail (printf "analysisTemplate %q contains duplicate target for component %q" $definition.name $target.component) }}{{ end -}}{{- $_ := set $targetComponents $target.component true -}}{{- $matched := dict -}}{{- range $component := $.Values.sources.components -}}{{- if eq $component.name $target.component }}{{- $matched = $component -}}{{- end -}}{{- end -}}{{- if empty $matched.name }}{{ fail (printf "analysisTemplate %q targets unknown component %q" $definition.name $target.component) }}{{ end -}}{{- if not $matched.enabled }}{{ fail (printf "analysisTemplate %q targets disabled component %q" $definition.name $target.component) }}{{ end -}}{{- end -}}
+{{- $targetComponents := dict -}}{{- range $target := default list $definition.targets -}}{{- if empty $target.component }}{{ fail (printf "analysisTemplate %q target requires component" $definition.name) }}{{ end -}}{{- if hasKey $targetComponents $target.component }}{{ fail (printf "analysisTemplate %q contains duplicate target for component %q" $definition.name $target.component) }}{{ end -}}{{- $_ := set $targetComponents $target.component true -}}{{- $matched := dict -}}{{- range $component := $components -}}{{- if eq $component.name $target.component }}{{- $matched = $component -}}{{- end -}}{{- end -}}{{- if empty $matched.name }}{{ fail (printf "analysisTemplate %q targets unknown component %q" $definition.name $target.component) }}{{ end -}}{{- if not $matched.enabled }}{{ fail (printf "analysisTemplate %q targets disabled component %q" $definition.name $target.component) }}{{ end -}}{{- end -}}
 {{- if eq $definition.type "prometheus" -}}{{- $allowed := list "name" "query" "minimum" "maximum" "failureCondition" "labels" "window" "interval" "count" "allowedFailedMeasurements" "mode" -}}{{- range $item := default list $definition.metrics -}}{{- range $field := keys $item -}}{{- if not (has $field $allowed) }}{{ fail (printf "analysisTemplate %q metric %q contains unknown field %q" $definition.name $item.name $field) }}{{ end -}}{{- end -}}{{- end -}}{{- end -}}
 {{- if eq $definition.type "elasticsearch" -}}{{- $allowed := list "name" "query" "filters" "index" "interval" "allowedFailedMeasurements" "maximumCount" "mode" -}}{{- range $item := default list $definition.checks -}}{{- range $field := keys $item -}}{{- if not (has $field $allowed) }}{{ fail (printf "analysisTemplate %q Elasticsearch check %q contains unknown field %q" $definition.name $item.name $field) }}{{ end -}}{{- end -}}{{- end -}}{{- end -}}
 {{- if eq $definition.type "http" -}}{{- $allowed := list "name" "url" "method" "timeoutSeconds" "expectedStatus" "successCondition" -}}{{- range $item := default list $definition.checks -}}{{- range $field := keys $item -}}{{- if not (has $field $allowed) }}{{ fail (printf "analysisTemplate %q HTTP check %q contains unknown field %q" $definition.name $item.name $field) }}{{ end -}}{{- end -}}{{- end -}}{{- end -}}
@@ -148,7 +155,7 @@ kargo.akuity.io/project: {{ include "generic-kargo-pipeline.projectName" . | quo
 {{- if hasKey $paths $out }}{{ fail (printf "enabled components %q and %q resolve to outputPath %q" (get $paths $out) $c.name $out) }}{{ end -}}{{- $_ := set $paths $out $c.name -}}
 {{- if $c.releaseConfiguration.generationEnabled -}}{{ include "generic-kargo-pipeline.validatePath" (dict "scope" (printf "component %q devConfigurationPath" $c.name) "path" $c.releaseConfiguration.devConfigurationPath) }}{{ include "generic-kargo-pipeline.validatePath" (dict "scope" (printf "component %q chartOverlayPath" $c.name) "path" $c.releaseConfiguration.chartOverlayPath) }}{{ end -}}{{- end -}}{{- end -}}
 {{- range $key, $stage := .Values.pipeline.stages -}}{{- range $pattern := concat (default list $stage.tagPolicy.allowedPatterns) (default list $stage.tagPolicy.deniedPatterns) -}}{{- $_ := regexMatch $pattern "" -}}{{- end -}}{{- end -}}
-{{- range $component := .Values.sources.components -}}{{- range $pattern := concat (default list $component.tagPolicy.allowedPatterns) (default list $component.tagPolicy.deniedPatterns) -}}{{- $_ := regexMatch $pattern "" -}}{{- end -}}{{- end -}}
+{{- range $component := $components -}}{{- range $pattern := concat (default list $component.tagPolicy.allowedPatterns) (default list $component.tagPolicy.deniedPatterns) -}}{{- $_ := regexMatch $pattern "" -}}{{- end -}}{{- end -}}
 {{- if .Values.pipeline.stages.production.autoPromotionEnabled }}{{ fail "pipeline.stages.production.autoPromotionEnabled must be false; Production requires explicit Freight selection" }}{{ end -}}
 {{- if or .Values.pipeline.stages.dev.verification.enabled .Values.pipeline.stages.integration.verification.enabled -}}
 {{- if or (empty .Values.global.dispatcher.image.repository) (empty .Values.global.dispatcher.image.tag) }}{{ fail "global.dispatcher.image.repository and tag are required when Dev or Integration verification is enabled; the dispatcher is a prebuilt external prerequisite" }}{{ end -}}
@@ -202,7 +209,7 @@ kargo.akuity.io/project: {{ include "generic-kargo-pipeline.projectName" . | quo
 {{- if and (eq $key "dev") (eq $type "external") (eq $definition.target "components") -}}
 {{- $reference := . -}}
 {{- if empty .component }}{{ fail (printf "Dev component AnalysisTemplate reference %q requires component" .name) }}{{ end -}}
-{{- $matchedComponent := dict -}}{{- range $candidate := $.Values.sources.components -}}{{- if eq $candidate.name $reference.component }}{{- $matchedComponent = $candidate -}}{{- end -}}{{- end -}}
+{{- $matchedComponent := dict -}}{{- range $candidate := $components -}}{{- if eq $candidate.name $reference.component }}{{- $matchedComponent = $candidate -}}{{- end -}}{{- end -}}
 {{- if empty $matchedComponent.name }}{{ fail (printf "Dev AnalysisTemplate reference %q selects unknown component %q" $reference.name $reference.component) }}{{ end -}}
 {{- if or (not $matchedComponent.enabled) (empty $matchedComponent.qaGit.repository.url) }}{{ fail (printf "Dev AnalysisTemplate reference %q requires enabled component %q with qaGit.repository.url" $reference.name $reference.component) }}{{ end -}}
 {{- end -}}

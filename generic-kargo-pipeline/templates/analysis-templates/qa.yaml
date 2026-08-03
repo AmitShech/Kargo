@@ -1,5 +1,6 @@
+{{- $components := include "generic-kargo-pipeline.components" . | fromYamlArray -}}
 {{- range $definition := .Values.analysisTemplates }}{{- $active := false -}}{{- range $reference := $.Values.pipeline.stages.dev.verification.analysisTemplates -}}{{- if and $reference.enabled (eq $reference.name $definition.name) -}}{{- $active = true -}}{{- end -}}{{- end -}}{{- if and $active (eq $definition.type "smooth") }}
-{{- range $component := $.Values.sources.components }}{{- if and $component.enabled $component.qaGit }}
+{{- range $component := $components }}{{- if and $component.enabled $component.qaGit }}
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: AnalysisTemplate

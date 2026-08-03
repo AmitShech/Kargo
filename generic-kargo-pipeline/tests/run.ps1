@@ -33,14 +33,14 @@ if (($rendered | Select-String 'stageSelector:').Count -ne 5 -or ($rendered | Se
 if (($rendered | Select-String 'selectionPolicy:').Count -ne 5) { throw 'not every Stage renders its Freight auto-promotion selection policy' }
 if ($renderedText -notmatch 'selectionPolicy: "NewestFreight"' -or (($rendered | Select-String 'selectionPolicy: "MatchUpstream"').Count -ne 4)) { throw 'Stage Freight selection policies are incorrect' }
 
-$strictTags = helm template strict-tags $chart -f (Join-Path $PSScriptRoot 'enabled-values.yaml') --set-string 'sources.components[0].tagPolicy.allowedPatterns[0]=^dev-'
+$strictTags = helm template strict-tags $chart -f (Join-Path $PSScriptRoot 'fixtures/enabled-values.yaml') --set-string 'sources.components[0].tagPolicy.allowedPatterns[0]=^dev-'
 if ($LASTEXITCODE -ne 0) { throw 'strict component tag-policy render failed' }
 $strictTagsText = $strictTags -join "`n"
 foreach ($needle in @('pre-production-main-not-stage-allowed', 'pre-production-main-not-component-allowed')) {
   if ($strictTagsText -notmatch $needle) { throw "Stage and component allowed tag policies are not independently enforced: missing $needle" }
 }
 
-$enabled = helm template enabled $chart --namespace enabled -f (Join-Path $PSScriptRoot 'enabled-values.yaml')
+$enabled = helm template enabled $chart --namespace enabled -f (Join-Path $PSScriptRoot 'fixtures/enabled-values.yaml')
 if ($LASTEXITCODE -ne 0) { throw 'enabled-feature render failed' }
 $enabledText = $enabled -join "`n"
 foreach ($needle in @('kind: AnalysisTemplate', '--skip-install', 'flink_restarts', 'verificationStartedAt')) {
@@ -81,7 +81,7 @@ foreach ($needle in @('name: "dev-smooth-main"', 'name: prepare-qa', 'QA_GIT_REP
   if ($enabledText -notmatch [regex]::Escape($needle)) { throw "supported QA AnalysisTemplate is missing $needle" }
 }
 
-$external = helm template external $chart -f (Join-Path $PSScriptRoot 'external-values.yaml')
+$external = helm template external $chart -f (Join-Path $PSScriptRoot 'fixtures/external-values.yaml')
 if ($LASTEXITCODE -ne 0) { throw 'external AnalysisTemplate render failed' }
 $externalText = $external -join "`n"
 foreach ($needle in @('dev-external-dispatcher', '\"resourceName\":\"existing-organization-qa\"', '\"kind\":\"ClusterAnalysisTemplate\"', '\"retryAmount\":0', '\"timeout\":\"10m\"', '\"ttlAfterFinished\":\"2h\"', '\"mode\":\"dry-run\"', '\"allowedFailedMeasurements\":1', 'name: "environment"', 'value: "dev"', 'name: "region"', 'value: "eu"')) {
@@ -89,7 +89,7 @@ foreach ($needle in @('dev-external-dispatcher', '\"resourceName\":\"existing-or
 }
 if ($externalText -match 'name: "existing-organization-qa"') { throw 'external AnalysisTemplate resource was created instead of only referenced' }
 
-$negative = (helm template invalid-external $chart -f (Join-Path $PSScriptRoot 'external-values.yaml') `
+$negative = (helm template invalid-external $chart -f (Join-Path $PSScriptRoot 'fixtures/external-values.yaml') `
   --set 'pipeline.stages.dev.verification.analysisTemplates[0].arguments[0].name=region' `
   --set 'pipeline.stages.dev.verification.analysisTemplates[0].arguments[0].value=us' 2>&1) -join "`n"
 if ($LASTEXITCODE -eq 0 -or $negative -notmatch 'requires Stage argument "environment"') { throw 'missing external required argument was accepted' }
@@ -138,21 +138,21 @@ $negative = (helm template invalid $chart --set global.dispatcher.image.pullPoli
 if ($LASTEXITCODE -eq 0 -or $negative -notmatch 'pullPolicy') { throw 'invalid dispatcher pull policy was accepted' }
 
 $negative = (helm template invalid $chart `
-  -f (Join-Path $PSScriptRoot 'enabled-values.yaml') `
+  -f (Join-Path $PSScriptRoot 'fixtures/enabled-values.yaml') `
   --set pipeline.stages.integration.verification.duration=0s 2>&1) -join "`n"
 if ($LASTEXITCODE -eq 0 -or $negative -notmatch 'duration must be greater than zero') { throw 'zero Integration duration was accepted' }
 
 $negative = (helm template invalid $chart `
-  -f (Join-Path $PSScriptRoot 'enabled-values.yaml') `
+  -f (Join-Path $PSScriptRoot 'fixtures/enabled-values.yaml') `
   --set pipeline.stages.integration.verification.maxMeasurements=2 2>&1) -join "`n"
 if ($LASTEXITCODE -eq 0 -or $negative -notmatch 'exceeding maxMeasurements') { throw 'Integration measurement upper bound was not enforced' }
 
 $negative = (helm template invalid $chart `
-  -f (Join-Path $PSScriptRoot 'enabled-values.yaml') `
+  -f (Join-Path $PSScriptRoot 'fixtures/enabled-values.yaml') `
   --set pipeline.stages.integration.verification.initialDelay=soon 2>&1) -join "`n"
 if ($LASTEXITCODE -eq 0 -or $negative -notmatch 'must be a non-negative integer') { throw 'invalid Integration initial delay was accepted' }
 
-$dryRunAll = helm template dry-run-all $chart -f (Join-Path $PSScriptRoot 'enabled-values.yaml') --set pipeline.stages.integration.verification.dryRunAll=true
+$dryRunAll = helm template dry-run-all $chart -f (Join-Path $PSScriptRoot 'fixtures/enabled-values.yaml') --set pipeline.stages.integration.verification.dryRunAll=true
 if ($LASTEXITCODE -ne 0) { throw 'Integration dryRunAll render failed' }
 if (-not (($dryRunAll -join "`n").Contains('\"dryRun\":[{\"metricName\":\"*\"}]'))) { throw 'dryRunAll did not render the native all-metrics selector' }
 
@@ -162,16 +162,16 @@ if ($LASTEXITCODE -eq 0 -or $negative -notmatch 'contains unknown field') { thro
 $negative = (helm template invalid $chart --set services.ai.unknownField=true 2>&1) -join "`n"
 if ($LASTEXITCODE -eq 0 -or $negative -notmatch 'contains unknown field') { throw 'unknown service field was accepted' }
 
-$negative = (helm template invalid $chart -f (Join-Path $PSScriptRoot 'enabled-values.yaml') --set analysisTemplates[0].unknownField=true 2>&1) -join "`n"
+$negative = (helm template invalid $chart -f (Join-Path $PSScriptRoot 'fixtures/enabled-values.yaml') --set analysisTemplates[0].unknownField=true 2>&1) -join "`n"
 if ($LASTEXITCODE -eq 0 -or $negative -notmatch 'contains incompatible field') { throw 'type-incompatible AnalysisTemplate field was accepted' }
 
 $negative = (helm template invalid $chart --set sources.componentDefaults.unknownField=true 2>&1) -join "`n"
 if ($LASTEXITCODE -eq 0 -or $negative -notmatch 'sources.componentDefaults contains unknown field') { throw 'unknown componentDefaults field was accepted' }
 
-$negative = (helm template invalid $chart -f (Join-Path $PSScriptRoot 'enabled-values.yaml') --set-string 'analysisTemplates[1].targets[0].component=missing' 2>&1) -join "`n"
+$negative = (helm template invalid $chart -f (Join-Path $PSScriptRoot 'fixtures/enabled-values.yaml') --set-string 'analysisTemplates[1].targets[0].component=missing' 2>&1) -join "`n"
 if ($LASTEXITCODE -eq 0 -or $negative -notmatch 'targets unknown component') { throw 'unknown AnalysisTemplate target component was accepted' }
 
-$negative = (helm template invalid $chart -f (Join-Path $PSScriptRoot 'enabled-values.yaml') `
+$negative = (helm template invalid $chart -f (Join-Path $PSScriptRoot 'fixtures/enabled-values.yaml') `
   --set pipeline.stages.integration.verification.analysisTemplates[0].name=dev-smooth `
   --set pipeline.stages.integration.verification.analysisTemplates[0].enabled=true `
   --set pipeline.stages.integration.verification.analysisTemplates[1].enabled=false 2>&1) -join "`n"
@@ -189,10 +189,10 @@ $negative = (helm template invalid $chart `
   --set services.gitLab.endpoint=https://gitlab.example 2>&1) -join "`n"
 if ($LASTEXITCODE -eq 0 -or $negative -notmatch 'requireCommitPreservingMerge must be true') { throw 'unsafe GitLab merge configuration was accepted' }
 
-$negative = (helm template invalid $chart -f (Join-Path $PSScriptRoot 'enabled-values.yaml') --set pipeline.stages.production.verification.enabled=true 2>&1) -join "`n"
+$negative = (helm template invalid $chart -f (Join-Path $PSScriptRoot 'fixtures/enabled-values.yaml') --set pipeline.stages.production.verification.enabled=true 2>&1) -join "`n"
 if ($LASTEXITCODE -eq 0 -or $negative -notmatch 'requires at least one enabled analysisTemplate reference') { throw 'enabled Production verification without templates was accepted' }
 
-$inactive = helm template inactive $chart -f (Join-Path $PSScriptRoot 'inactive-values.yaml')
+$inactive = helm template inactive $chart -f (Join-Path $PSScriptRoot 'fixtures/inactive-values.yaml')
 if ($LASTEXITCODE -ne 0) { throw 'inactive incomplete provider definition failed rendering' }
 if (($inactive -join "`n") -match 'name: "future-job"') { throw 'inactive managed AnalysisTemplate was rendered' }
 
@@ -273,7 +273,7 @@ $negative = (helm template invalid $chart `
   --set services.serviceNow.endpoint=https://servicenow.example 2>&1) -join "`n"
 if ($LASTEXITCODE -eq 0 -or $negative -notmatch 'requires pipeline.stages.preProduction.serviceNow.enabled') { throw 'Production ServiceNow finalization without Pre-production record creation was accepted' }
 
-$noGeneration = helm template no-generation $chart -f (Join-Path $PSScriptRoot 'enabled-values.yaml') --set sources.components[0].releaseConfiguration.generationEnabled=false
+$noGeneration = helm template no-generation $chart -f (Join-Path $PSScriptRoot 'fixtures/enabled-values.yaml') --set sources.components[0].releaseConfiguration.generationEnabled=false
 if ($LASTEXITCODE -ne 0) { throw 'component without generated configuration failed rendering' }
 $noGenerationText = $noGeneration -join "`n"
 if ($noGenerationText -notmatch 'as: "clone-main-config"' -or $noGenerationText -match 'as: "merge-main-config"') { throw 'developer Git evidence is not preserved independently of configuration generation' }
@@ -291,7 +291,7 @@ foreach ($needle in @('as: "prepare-release-email-success"', 'if: "${{ success()
 }
 
 $deploymentEmail = helm template deployment-email $chart `
-  -f (Join-Path $PSScriptRoot 'enabled-values.yaml') `
+  -f (Join-Path $PSScriptRoot 'fixtures/enabled-values.yaml') `
   --set services.mail.endpoint=https://mail.example `
   --set-string 'pipeline.notifications.email.recipients[0]=ops@example.com' `
   --set pipeline.stages.dev.outcomes.success.notifications.email.enabled=true `
@@ -307,7 +307,7 @@ foreach ($needle in @('https://mail.example', 'Dev verified', 'Integration faile
 }
 
 $productionFinalizer = helm template production-finalizer $chart `
-  -f (Join-Path $PSScriptRoot 'enabled-values.yaml') `
+  -f (Join-Path $PSScriptRoot 'fixtures/enabled-values.yaml') `
   --set pipeline.stages.production.verification.enabled=true `
   --set 'pipeline.stages.production.verification.analysisTemplates[0].name=flink-metrics' `
   --set 'pipeline.stages.production.verification.analysisTemplates[0].enabled=true' `
